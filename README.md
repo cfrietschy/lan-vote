@@ -2,6 +2,8 @@
 
 LAN Vote ist eine lokale Abstimmungsapp für LAN-Partys. Der Hauptmonitor zeigt QR-Code, Live-Ergebnisse und Gewinner vergangener Runden. Teilnehmer stimmen per Handy ab. Neue Abstimmungen werden im Admin-Bereich manuell gestartet.
 
+Hinweis: Diese Software ist komplett gevibecoded.
+
 ## Features
 
 - Spiel-Pool für wiederverwendbare LAN-Spiele
@@ -10,7 +12,7 @@ LAN Vote ist eine lokale Abstimmungsapp für LAN-Partys. Der Hauptmonitor zeigt 
 - Optionaler Steam Web API Key
 - Steam-Store-Suchfallback ohne API-Key
 - Abstimmungs-Timer mit automatischem Abschluss
-- Startklar-Checkbox pro Stimme
+- Installiert-Status pro Spiel
 - Mehrfachauswahl mit Top-3-Ranking
 - Abstimmungsvorlagen für wiederkehrende Runden
 - Optionale LAN-Onboarding-Seite für WLAN/LAN, Voice, Essen, Ablauf und Hilfe
@@ -126,7 +128,12 @@ Der Steam API Key bleibt serverseitig. Das Frontend ruft nur `/api/steam/search`
 
 - Der Monitor zeigt den QR-Code. Wenn Onboarding aktiviert ist, führt der QR-Code zuerst auf `/start`, sonst direkt auf `/vote`.
 - Teilnehmer wählen bis zu drei Spiele in Reihenfolge. Rang 1 zählt 3 Punkte, Rang 2 zählt 2 Punkte, Rang 3 zählt 1 Punkt.
-- Ergebnisse zeigen Punkte, Erstplatzierungen, startklare Teilnehmer und die Namen je Spiel.
+- Teilnehmer können pro Spiel markieren, ob es installiert ist.
+- Ergebnisse zeigen Punkte, Erstplatzierungen, installierte Teilnehmer und die Namen je Spiel.
 - Im Adminbereich werden Spiel-Pool, Vorlagen, Onboarding-Texte und laufende Abstimmungen verwaltet.
 - Offene Clients bekommen bei neuer Abstimmung einen Hinweis. Ton muss im Browser einmal über `Ton aktivieren` freigeschaltet werden.
 - Onboarding-Texte unterstützen Markdown, z.B. Listen, Überschriften, `[Link](https://...)` und `![Bild](https://...)`. Gerenderte URLs können direkt kopiert werden.
+
+## Lizenz
+
+MIT License. Jeder darf die Anwendung nutzen, kopieren, ändern und weitergeben. Die Software wird ohne Gewährleistung bereitgestellt; Einsatz und Betrieb erfolgen auf eigenes Risiko.
