@@ -1,0 +1,28 @@
+services:
+  lan-vote:
+    build: .
+    container_name: lan-vote
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Auf die LAN-IP oder den lokalen DNS-Namen des Docker-Hosts setzen.
+      LAN_VOTE_PUBLIC_URL: "${LAN_VOTE_PUBLIC_URL:?Set LAN_VOTE_PUBLIC_URL in .env}"
+      LAN_VOTE_PORT: "8080"
+      LAN_VOTE_DB_PATH: "/app/data/lan-vote.sqlite"
+      LAN_VOTE_ADMIN_USER: "${LAN_VOTE_ADMIN_USER:-admin}"
+      LAN_VOTE_ADMIN_PASSWORD: "${LAN_VOTE_ADMIN_PASSWORD:?Set LAN_VOTE_ADMIN_PASSWORD in .env}"
+      # Optional: Steam Web API Key für serverseitige Steam-Suche.
+      STEAM_WEB_API_KEY: "${STEAM_WEB_API_KEY:-}"
+      STEAM_APP_LIST_TTL_HOURS: "${STEAM_APP_LIST_TTL_HOURS:-24}"
+      STEAM_DETAILS_CACHE_TTL_DAYS: "${STEAM_DETAILS_CACHE_TTL_DAYS:-365}"
+    volumes:
+      - lan-vote-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/api/state').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  lan-vote-data:
