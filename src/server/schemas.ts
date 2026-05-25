@@ -71,11 +71,17 @@ export const poolGameSchema = z.object({
 export const onboardingSchema = z.object({
   enabled: z.boolean().default(false),
   title: z.string().trim().min(1).max(80).default("LAN-Startseite"),
-  wlanInfo: z.string().trim().max(1000).default(""),
-  voiceInfo: z.string().trim().max(1000).default(""),
-  foodInfo: z.string().trim().max(1000).default(""),
-  scheduleInfo: z.string().trim().max(1000).default(""),
-  helpInfo: z.string().trim().max(1000).default("")
+  wlanInfo: z.string().trim().max(4000).default(""),
+  voiceInfo: z.string().trim().max(4000).default(""),
+  foodInfo: z.string().trim().max(4000).default(""),
+  scheduleInfo: z.string().trim().max(4000).default(""),
+  helpInfo: z.string().trim().max(4000).default("")
+});
+
+export const uploadImageSchema = z.object({
+  filename: z.string().trim().min(1).max(180),
+  mimeType: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]),
+  data: z.string().min(1).max(5_600_000)
 });
 
 export const appSettingsSchema = z.object({

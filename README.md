@@ -80,6 +80,60 @@ Danach im Browser öffnen:
 
 Die SQLite-Datenbank liegt im Docker-Volume `lan-vote-data` unter `/app/data/lan-vote.sqlite`.
 
+## Anwendung aktualisieren
+
+Vor einem Update sollte das persistente Datenverzeichnis gesichert werden. Die SQLite-Datenbank, der Steam-Cache und hochgeladene Onboarding-Bilder liegen im Container unter `/app/data`.
+
+Backup aus dem Docker-Volume erstellen:
+
+```bash
+mkdir -p backups
+docker run --rm \
+  -v lan-vote-data:/data:ro \
+  -v "$PWD/backups:/backup" \
+  node:24-trixie-slim \
+  tar -czf /backup/lan-vote-data-$(date +%Y%m%d-%H%M%S).tar.gz -C /data .
+```
+
+Wenn die Anwendung per Git ausgecheckt wurde:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+Wenn Dateien manuell auf den Host kopiert wurden, zuerst die neuen Dateien in das Projektverzeichnis kopieren und danach neu bauen:
+
+```bash
+docker compose up -d --build
+```
+
+Status prüfen:
+
+```bash
+docker compose ps
+docker compose logs --tail=80 lan-vote
+```
+
+Falls der Container einen Healthcheck hat, kann zusätzlich geprüft werden:
+
+```bash
+docker inspect --format='{{.State.Health.Status}}' lan-vote
+```
+
+Die `.env` sollte beim Update nicht überschrieben werden. Besonders `LAN_VOTE_ADMIN_PASSWORD`, `LAN_VOTE_PUBLIC_URL` und optional `STEAM_WEB_API_KEY` bleiben hostlokale Konfiguration.
+
+Rollback im Fehlerfall:
+
+1. Alten Code-Stand wiederherstellen, z.B. per Git-Tag, Commit oder Backup.
+2. Container erneut bauen und starten:
+
+```bash
+docker compose up -d --build
+```
+
+3. Falls Daten zurückgespielt werden müssen, Container stoppen und das Volume aus dem Backup wiederherstellen.
+
 ## Docker-Host-Voraussetzungen
 
 - Linux-Host oder Linux-VM, z.B. Debian 13 oder Ubuntu 24.04.

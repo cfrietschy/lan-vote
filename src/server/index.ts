@@ -1,5 +1,6 @@
 import express from "express";
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +10,7 @@ import { loadConfig } from "./config.js";
 import { openDatabase } from "./db.js";
 import { defaultPoolGames } from "./lan-classics.js";
 import { GameMetadataCache } from "./metadata-cache.js";
-import { appSettingsSchema, createPollSchema, onboardingSchema, participantPollSchema, pollTemplateSchema, poolGameSchema, steamSearchSchema, steamTopGamesSchema, voteSchema } from "./schemas.js";
+import { appSettingsSchema, createPollSchema, onboardingSchema, participantPollSchema, pollTemplateSchema, poolGameSchema, steamSearchSchema, steamTopGamesSchema, uploadImageSchema, voteSchema } from "./schemas.js";
 import { SteamApiError, SteamService } from "./steam.js";
 import { ApiError, Store, type GameInput } from "./store.js";
 
@@ -21,13 +22,14 @@ const metadataCache = new GameMetadataCache(db, config.steamDetailsCacheTtlMs);
 const steam = new SteamService(config.steamWebApiKey, config.steamAppListTtlMs, metadataCache);
 const app = express();
 const server = http.createServer(app);
+const uploadsRoot = path.join(path.dirname(config.databasePath), "uploads");
 const io = new SocketServer(server, {
   cors: {
     origin: true
   }
 });
 
-app.use(express.json({ limit: "128kb" }));
+app.use(express.json({ limit: "6mb" }));
 
 app.get("/api/state", (_req, res) => {
   res.json(store.getPublicState());
@@ -124,6 +126,73 @@ app.put("/api/onboarding", requireAdmin, (req, res, next) => {
     const onboarding = store.saveOnboardingSettings(payload);
     emitState();
     res.json(onboarding);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/uploads/images", requireAdmin, async (req, res, next) => {
+  try {
+    const payload = uploadImageSchema.parse(req.body);
+    const buffer = Buffer.from(payload.data, "base64");
+    if (buffer.length === 0 || buffer.length > 4 * 1024 * 1024) throw new ApiError(400, "Bild darf maximal 4 MB groß sein.");
+
+    const extension = extensionForMimeType(payload.mimeType);
+    const baseName = path
+      .basename(payload.filename, path.extname(payload.filename))
+      .normalize("NFKD")
+      .replace(/[^a-zA-Z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "bild";
+    const filename = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}-${baseName}.${extension}`;
+    await fs.mkdir(uploadsRoot, { recursive: true });
+    await fs.writeFile(path.join(uploadsRoot, filename), buffer, { flag: "wx" });
+
+    res.status(201).json({ url: `/uploads/${filename}`, filename });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/uploads/images", requireAdmin, async (_req, res, next) => {
+  try {
+    const images = await listUploadedImages();
+    const referencedFilenames = referencedUploadFilenames();
+    res.json({
+      images: images.map((image) => ({ ...image, referenced: referencedFilenames.has(image.filename) })),
+      orphanCount: images.filter((image) => !referencedFilenames.has(image.filename)).length
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/uploads/images/orphans", requireAdmin, async (_req, res, next) => {
+  try {
+    const images = await listUploadedImages();
+    const referencedFilenames = referencedUploadFilenames();
+    const deleted: string[] = [];
+
+    for (const image of images) {
+      if (referencedFilenames.has(image.filename)) continue;
+      await fs.unlink(uploadPathForFilename(image.filename));
+      deleted.push(image.filename);
+    }
+
+    res.json({ deleted });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/uploads/images/:filename", requireAdmin, async (req, res, next) => {
+  try {
+    const filename = safeUploadFilename(String(req.params.filename));
+    await fs.unlink(uploadPathForFilename(filename)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") throw new ApiError(404, "Bild nicht gefunden.");
+      throw error;
+    });
+    res.status(204).end();
   } catch (error) {
     next(error);
   }
@@ -227,6 +296,7 @@ app.delete("/api/history/:pollId", requireAdmin, (req, res, next) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicRoot = path.resolve(__dirname, "../public");
+app.use("/uploads", express.static(uploadsRoot, { etag: false, immutable: true, maxAge: "30d" }));
 app.use(express.static(publicRoot, { etag: false, maxAge: 0 }));
 app.get(["/", "/start", "/vote"], (_req, res) => {
   res.sendFile(path.join(publicRoot, "index.html"));
@@ -352,6 +422,59 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
   }
 
   requestBasicAuth(res);
+}
+
+function extensionForMimeType(mimeType: string): "png" | "jpg" | "webp" | "gif" {
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/webp") return "webp";
+  return "gif";
+}
+
+async function listUploadedImages(): Promise<Array<{ filename: string; url: string; size: number; modifiedAt: string }>> {
+  const entries = await fs.readdir(uploadsRoot, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+
+  const images = await Promise.all(entries
+    .filter((entry) => entry.isFile() && isUploadFilename(entry.name))
+    .map(async (entry) => {
+      const filename = safeUploadFilename(entry.name);
+      const stats = await fs.stat(uploadPathForFilename(filename));
+      return { filename, url: `/uploads/${filename}`, size: stats.size, modifiedAt: stats.mtime.toISOString() };
+    }));
+
+  return images.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
+}
+
+function referencedUploadFilenames(): Set<string> {
+  const onboarding = store.getOnboardingSettings();
+  const text = [onboarding.wlanInfo, onboarding.voiceInfo, onboarding.foodInfo, onboarding.scheduleInfo, onboarding.helpInfo].join("\n");
+  const filenames = new Set<string>();
+  const pattern = /\/uploads\/([A-Za-z0-9._-]+\.(?:png|jpg|webp|gif))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    try {
+      filenames.add(safeUploadFilename(match[1] || ""));
+    } catch {
+      // Ignore stale or hand-edited invalid references.
+    }
+  }
+  return filenames;
+}
+
+function safeUploadFilename(filename: string): string {
+  if (!isUploadFilename(filename)) throw new ApiError(400, "Ungültiger Bildname.");
+  return filename;
+}
+
+function isUploadFilename(filename: string): boolean {
+  return /^[A-Za-z0-9._-]+\.(?:png|jpg|webp|gif)$/i.test(filename);
+}
+
+function uploadPathForFilename(filename: string): string {
+  return path.join(uploadsRoot, safeUploadFilename(filename));
 }
 
 function requestBasicAuth(res: express.Response): void {

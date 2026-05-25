@@ -63,6 +63,19 @@ type SteamTopGame = SteamSearchResult & {
   peakPlayers: number;
 };
 
+type UploadedImage = {
+  filename: string;
+  url: string;
+  size: number;
+  modifiedAt: string;
+  referenced: boolean;
+};
+
+type UploadedImagesResponse = {
+  images: UploadedImage[];
+  orphanCount: number;
+};
+
 type AdminTab = "poll" | "templates" | "add-games" | "pool" | "active" | "onboarding" | "history" | "settings";
 type PoolPlayerFilter = "all" | "2-4" | "5-8" | "9-16" | "17+";
 type PoolSourceFilter = "all" | "steam" | "manual";
@@ -297,8 +310,11 @@ function TvView({
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
 }) {
+  const hasActivePoll = Boolean(state.activePoll && state.activeResults);
+  const tvClassName = `tv ${notice ? "tv-flash" : ""} ${hasActivePoll ? "tv-active" : "tv-idle"}`;
+
   return (
-    <main className={`tv ${notice ? "tv-flash" : ""}`}>
+    <main className={tvClassName}>
       <SoundToggle enabled={soundEnabled} onEnable={onEnableSound} />
       <ThemeToggle value={theme} onChange={onThemeChange} />
       {notice ? (
@@ -314,28 +330,52 @@ function TvView({
           </div>
         </aside>
       ) : null}
-      <section className="tv-main">
-        <div>
-          <div className="tv-brand">LAN Vote</div>
-          <ActivePollBlock state={state} tv />
-        </div>
-        <aside className="tv-side">
-          <TvOnboardingInfo onboarding={state.onboarding} />
-          <QrCode value={state.server.qrUrl} />
-          <div className="url-box">{state.server.qrUrl}</div>
-          <h2>Gewinner</h2>
-          <History state={state} />
-        </aside>
-      </section>
+      {hasActivePoll ? (
+        <section className="tv-main tv-main-active">
+          <div className="tv-poll-panel">
+            <div className="tv-brand">LAN Vote</div>
+            <ActivePollBlock state={state} tv />
+          </div>
+          <aside className="tv-side tv-side-active">
+            <section className="tv-qr-card" aria-label="Abstimmungs-QR-Code">
+              <p className="muted">Jetzt abstimmen</p>
+              <QrCode value={state.server.qrUrl} />
+              <div className="url-box">{state.server.qrUrl}</div>
+            </section>
+            <TvOnboardingInfo onboarding={state.onboarding} compact />
+            <section className="tv-history-compact">
+              <h2>Gewinner</h2>
+              <History state={state} />
+            </section>
+          </aside>
+        </section>
+      ) : (
+        <section className="tv-main tv-main-idle">
+          <div className="tv-info-wide">
+            <div className="tv-brand">LAN Vote</div>
+            <TvOnboardingInfo onboarding={state.onboarding} />
+          </div>
+          <aside className="tv-side tv-side-idle">
+            <div className="empty">Aktuell läuft keine Abstimmung.</div>
+            <section className="tv-qr-card" aria-label="LAN-QR-Code">
+              <p className="muted">LAN-Seite</p>
+              <QrCode value={state.server.qrUrl} />
+              <div className="url-box">{state.server.qrUrl}</div>
+            </section>
+            <h2>Gewinner</h2>
+            <History state={state} />
+          </aside>
+        </section>
+      )}
     </main>
   );
 }
 
-function TvOnboardingInfo({ onboarding }: { onboarding: OnboardingSettings }) {
+function TvOnboardingInfo({ onboarding, compact = false }: { onboarding: OnboardingSettings; compact?: boolean }) {
   const items = getOnboardingItems(onboarding);
 
   return (
-    <section className="tv-onboarding" aria-label="LAN-Infos">
+    <section className={`tv-onboarding ${compact ? "compact" : ""}`} aria-label="LAN-Infos">
       <p className="muted">LAN-Infos</p>
       <h2>{onboarding.title}</h2>
       {items.length ? (
@@ -1123,16 +1163,63 @@ function PoolEditor({ draft, onChange, onSave }: { draft: GameDraft; onChange: (
 function OnboardingAdmin({ initial }: { initial: OnboardingSettings }) {
   const [settings, setSettings] = useState(initial);
   const [status, setStatus] = useState("");
+  const [uploadedImages, setUploadedImages] = useState<UploadedImage[]>([]);
+  const [imageStatus, setImageStatus] = useState("");
 
   useEffect(() => setSettings(initial), [initial]);
+  useEffect(() => {
+    void loadUploadedImages();
+  }, []);
 
   async function save() {
     try {
-      const saved = await putJson<OnboardingSettings>("/api/onboarding", settings);
-      setSettings(saved);
+      await saveSettings(settings);
       setStatus("Onboarding gespeichert.");
     } catch (error) {
       setStatus((error as Error).message);
+    }
+  }
+
+  async function saveSettings(nextSettings: OnboardingSettings) {
+    const saved = await putJson<OnboardingSettings>("/api/onboarding", nextSettings);
+    setSettings(saved);
+    return saved;
+  }
+
+  async function loadUploadedImages() {
+    try {
+      const response = await getJson<UploadedImagesResponse>("/api/uploads/images");
+      setUploadedImages(response.images);
+    } catch (error) {
+      setImageStatus((error as Error).message);
+    }
+  }
+
+  async function deleteUploadedImage(image: UploadedImage) {
+    const label = image.referenced ? "Dieses Bild wird in den Onboarding-Texten verwendet. Referenzen werden entfernt und gespeichert." : "Dieses Bild wird gelöscht.";
+    if (!window.confirm(`${label}\n\n${image.filename}`)) return;
+    try {
+      setImageStatus(`${image.filename} wird gelöscht...`);
+      const cleanedSettings = removeImageFromOnboarding(settings, image.url);
+      if (onboardingSettingsChanged(settings, cleanedSettings)) await saveSettings(cleanedSettings);
+      await deleteJson(`/api/uploads/images/${encodeURIComponent(image.filename)}`);
+      await loadUploadedImages();
+      setImageStatus(`${image.filename} gelöscht.`);
+    } catch (error) {
+      setImageStatus((error as Error).message);
+    }
+  }
+
+  async function deleteOrphanedImages() {
+    if (!window.confirm("Alle Uploads löschen, die in keinem Onboarding-Feld mehr referenziert werden?")) return;
+    try {
+      setImageStatus("Verwaiste Bilder werden gelöscht...");
+      await saveSettings(settings);
+      const response = await deleteJson<{ deleted: string[] }>("/api/uploads/images/orphans");
+      await loadUploadedImages();
+      setImageStatus(response.deleted.length ? `${response.deleted.length} verwaiste Bilder gelöscht.` : "Keine verwaisten Bilder gefunden.");
+    } catch (error) {
+      setImageStatus((error as Error).message);
     }
   }
 
@@ -1143,14 +1230,153 @@ function OnboardingAdmin({ initial }: { initial: OnboardingSettings }) {
         <span>QR-Code zuerst auf LAN-Startseite führen.</span>
       </label>
       <label>Titel<input value={settings.title} onChange={(event) => setSettings({ ...settings, title: event.target.value })} /></label>
-      <label>WLAN / LAN<textarea value={settings.wlanInfo} onChange={(event) => setSettings({ ...settings, wlanInfo: event.target.value })} placeholder="- SSID: LAN&#10;- Passwort: ...&#10;![Lageplan](https://...)" /></label>
-      <label>Discord / Voice<textarea value={settings.voiceInfo} onChange={(event) => setSettings({ ...settings, voiceInfo: event.target.value })} placeholder="[Discord öffnen](https://discord.gg/...)" /></label>
-      <label>Essen<textarea value={settings.foodInfo} onChange={(event) => setSettings({ ...settings, foodInfo: event.target.value })} placeholder="## Essen&#10;- Pizza 19:00&#10;- Getränke im Kühlschrank" /></label>
-      <label>Ablauf<textarea value={settings.scheduleInfo} onChange={(event) => setSettings({ ...settings, scheduleInfo: event.target.value })} placeholder="## Ablauf&#10;- 18:00 Warmup&#10;- 20:00 Turnier" /></label>
-      <label>Hilfe<textarea value={settings.helpInfo} onChange={(event) => setSettings({ ...settings, helpInfo: event.target.value })} placeholder="Bei Problemen: **Orga fragen**" /></label>
+      <MarkdownEditor label="WLAN / LAN" value={settings.wlanInfo} onChange={(wlanInfo) => setSettings({ ...settings, wlanInfo })} onUpload={loadUploadedImages} placeholder="- SSID: LAN&#10;- Passwort: ...&#10;![](/uploads/...)" />
+      <MarkdownEditor label="Discord / Voice" value={settings.voiceInfo} onChange={(voiceInfo) => setSettings({ ...settings, voiceInfo })} onUpload={loadUploadedImages} placeholder="[Discord öffnen](https://discord.gg/...)" />
+      <MarkdownEditor label="Essen" value={settings.foodInfo} onChange={(foodInfo) => setSettings({ ...settings, foodInfo })} onUpload={loadUploadedImages} placeholder="## Essen&#10;- Pizza 19:00&#10;- Getränke im Kühlschrank" />
+      <MarkdownEditor label="Ablauf" value={settings.scheduleInfo} onChange={(scheduleInfo) => setSettings({ ...settings, scheduleInfo })} onUpload={loadUploadedImages} placeholder="## Ablauf&#10;- 18:00 Warmup&#10;- 20:00 Turnier" />
+      <MarkdownEditor label="Hilfe" value={settings.helpInfo} onChange={(helpInfo) => setSettings({ ...settings, helpInfo })} onUpload={loadUploadedImages} placeholder="Bei Problemen: **Orga fragen**" />
+      <UploadedImageManager images={uploadedImages} status={imageStatus} onRefresh={loadUploadedImages} onDelete={deleteUploadedImage} onDeleteOrphans={deleteOrphanedImages} />
       <div className="actions"><button type="button" className="secondary" onClick={save}>Onboarding speichern</button></div>
       {status ? <div className="status">{status}</div> : null}
     </div>
+  );
+}
+
+function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { label: string; value: string; onChange: (value: string) => void; onUpload?: () => void | Promise<void>; placeholder?: string }) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadStatus, setUploadStatus] = useState("");
+
+  function replaceSelection(nextText: string, selectionStart: number, selectionEnd: number) {
+    onChange(nextText);
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(selectionStart, selectionEnd);
+    });
+  }
+
+  function wrapSelection(prefix: string, suffix = prefix, fallback = "Text") {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? value.length;
+    const end = textarea?.selectionEnd ?? value.length;
+    const selected = value.slice(start, end) || fallback;
+    const insertion = `${prefix}${selected}${suffix}`;
+    replaceSelection(`${value.slice(0, start)}${insertion}${value.slice(end)}`, start + prefix.length, start + prefix.length + selected.length);
+  }
+
+  function prefixLines(prefix: string, fallback = "Text") {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? value.length;
+    const end = textarea?.selectionEnd ?? value.length;
+    const selected = value.slice(start, end) || fallback;
+    const lines = selected.split("\n").map((line) => `${prefix}${line || fallback}`).join("\n");
+    replaceSelection(`${value.slice(0, start)}${lines}${value.slice(end)}`, start, start + lines.length);
+  }
+
+  function insertLink() {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? value.length;
+    const end = textarea?.selectionEnd ?? value.length;
+    const selected = value.slice(start, end) || "Link";
+    const url = window.prompt("URL einfügen", "https://");
+    if (!url) return;
+    const insertion = `[${selected}](${url})`;
+    replaceSelection(`${value.slice(0, start)}${insertion}${value.slice(end)}`, start + 1, start + 1 + selected.length);
+  }
+
+  async function uploadImage(file: File) {
+    setUploadStatus(`${file.name} wird hochgeladen...`);
+    try {
+      const payload = await fileToUploadPayload(file);
+      const uploaded = await postJson<{ url: string }>("/api/uploads/images", payload);
+      insertAtCursor(`![](${uploaded.url})`);
+      await onUpload?.();
+      setUploadStatus(`${file.name} eingefügt.`);
+    } catch (error) {
+      setUploadStatus((error as Error).message);
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function insertAtCursor(markdown: string) {
+    const textarea = textareaRef.current;
+    const current = textarea?.value ?? value;
+    const start = textarea?.selectionStart ?? current.length;
+    const end = textarea?.selectionEnd ?? current.length;
+    const spacingBefore = start > 0 && !current.slice(0, start).endsWith("\n") ? "\n" : "";
+    const spacingAfter = end < current.length && !current.slice(end).startsWith("\n") ? "\n" : "";
+    const insertion = `${spacingBefore}${markdown}${spacingAfter}`;
+    replaceSelection(`${current.slice(0, start)}${insertion}${current.slice(end)}`, start + insertion.length, start + insertion.length);
+  }
+
+  return (
+    <div className="markdown-editor">
+      <span className="editor-label">{label}</span>
+      <div className="markdown-toolbar" aria-label={`${label} formatieren`}>
+        <button type="button" className="secondary compact-button" title="Fett" onClick={() => wrapSelection("**", "**", "fetter Text")}><strong>B</strong></button>
+        <button type="button" className="secondary compact-button" title="Kursiv" onClick={() => wrapSelection("_", "_", "kursiver Text")}><em>I</em></button>
+        <button type="button" className="secondary compact-button" title="Überschrift" onClick={() => prefixLines("## ", "Überschrift")}>H2</button>
+        <button type="button" className="secondary compact-button" title="Liste" onClick={() => prefixLines("- ")}>•</button>
+        <button type="button" className="secondary compact-button" title="Nummerierte Liste" onClick={() => prefixLines("1. ")}>1.</button>
+        <button type="button" className="secondary compact-button" title="Zitat" onClick={() => prefixLines("> ")}>“”</button>
+        <button type="button" className="secondary compact-button" title="Code" onClick={() => wrapSelection("`", "`", "code")}>{"<>"}</button>
+        <button type="button" className="secondary compact-button" title="Link" onClick={insertLink}>Link</button>
+        <button type="button" className="secondary compact-button" title="Bild ohne Bildunterschrift hochladen" onClick={() => fileInputRef.current?.click()}>Bild</button>
+      </div>
+      <textarea ref={textareaRef} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(event) => {
+        const file = event.currentTarget.files?.[0];
+        if (file) void uploadImage(file);
+      }} />
+      {uploadStatus ? <span className="muted">{uploadStatus}</span> : null}
+    </div>
+  );
+}
+
+function UploadedImageManager({
+  images,
+  status,
+  onRefresh,
+  onDelete,
+  onDeleteOrphans
+}: {
+  images: UploadedImage[];
+  status: string;
+  onRefresh: () => void | Promise<void>;
+  onDelete: (image: UploadedImage) => void | Promise<void>;
+  onDeleteOrphans: () => void | Promise<void>;
+}) {
+  const orphanCount = images.filter((image) => !image.referenced).length;
+
+  return (
+    <section className="upload-manager">
+      <div className="section-title">
+        <h3>Hochgeladene Bilder</h3>
+        <div className="actions">
+          <button type="button" className="secondary compact-button" onClick={() => void onRefresh()}>Aktualisieren</button>
+          <button type="button" className="danger compact-button" disabled={orphanCount === 0} onClick={() => void onDeleteOrphans()}>Verwaiste löschen</button>
+        </div>
+      </div>
+      {status ? <span className="muted">{status}</span> : null}
+      {images.length ? (
+        <div className="upload-list">
+          {images.map((image) => (
+            <article className="upload-row" key={image.filename}>
+              <img src={image.url} alt="" loading="lazy" />
+              <div>
+                <strong>{image.filename}</strong>
+                <span className="muted">{image.referenced ? "Wird verwendet" : "Verwaist"} | {formatBytes(image.size)} | {formatDateTime(image.modifiedAt)}</span>
+                <span className="copyable-link"><a href={image.url} target="_blank" rel="noreferrer">{image.url}</a><CopyUrlButton url={new URL(image.url, location.origin).href} /></span>
+              </div>
+              <button type="button" className="danger" onClick={() => void onDelete(image)}>Löschen</button>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty">Noch keine Bilder hochgeladen.</div>
+      )}
+    </section>
   );
 }
 
@@ -1216,7 +1442,7 @@ function Results({ results, tv = false }: { results: ResultOption[]; tv?: boolea
         <div className="tie-breaker-note">Gleichstand: {tieBreakerOptions.map((option) => option.name).join(" vs. ")}</div>
       ) : null}
       {sorted.map((option) => (
-        <article className="result-row" key={option.id}>
+        <article className={`result-row ${option.coverUrl ? "with-cover" : ""}`} key={option.id}>
           <div className="result-top">
             <span className="result-name">{option.name}</span>
             <span className="result-count">{option.votes} Punkte | {option.firstPlaceVotes}x Rang 1 | {option.readyVotes} installiert</span>
@@ -1332,10 +1558,12 @@ function MarkdownImage({ alt, url }: { alt: string; url: string }) {
   return (
     <figure className="markdown-image">
       <img src={safeUrl} alt={alt} loading="lazy" />
-      <figcaption>
-        <span>{alt || safeUrl}</span>
-        <CopyUrlButton url={safeUrl} />
-      </figcaption>
+      {alt ? (
+        <figcaption>
+          <span>{alt}</span>
+          <CopyUrlButton url={safeUrl} />
+        </figcaption>
+      ) : null}
     </figure>
   );
 }
@@ -1519,6 +1747,21 @@ async function getJson<T>(url: string): Promise<T> {
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || "Anfrage fehlgeschlagen.");
   return payload;
+}
+
+async function fileToUploadPayload(file: File): Promise<{ filename: string; mimeType: string; data: string }> {
+  if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type)) {
+    throw new Error("Bitte PNG, JPG, WebP oder GIF hochladen.");
+  }
+  if (file.size > 4 * 1024 * 1024) throw new Error("Bild darf maximal 4 MB groß sein.");
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Bild konnte nicht gelesen werden."));
+    reader.readAsDataURL(file);
+  });
+  const [, data = ""] = dataUrl.split(",", 2);
+  return { filename: file.name, mimeType: file.type, data };
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
@@ -1803,8 +2046,52 @@ function getSavedTheme(): ThemeMode {
   return saved === "light" || saved === "dark" ? saved : "dark";
 }
 
+function removeImageFromOnboarding(settings: OnboardingSettings, imageUrl: string): OnboardingSettings {
+  return {
+    ...settings,
+    wlanInfo: removeImageMarkdown(settings.wlanInfo, imageUrl),
+    voiceInfo: removeImageMarkdown(settings.voiceInfo, imageUrl),
+    foodInfo: removeImageMarkdown(settings.foodInfo, imageUrl),
+    scheduleInfo: removeImageMarkdown(settings.scheduleInfo, imageUrl),
+    helpInfo: removeImageMarkdown(settings.helpInfo, imageUrl)
+  };
+}
+
+function removeImageMarkdown(value: string, imageUrl: string): string {
+  const escapedUrl = escapeRegExp(imageUrl);
+  return value
+    .replace(new RegExp(`(^|\\n)\\s*!\\[[^\\]]*\\]\\(${escapedUrl}\\)\\s*(?=\\n|$)`, "g"), "$1")
+    .replace(new RegExp(`\\s*!\\[[^\\]]*\\]\\(${escapedUrl}\\)`, "g"), "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function onboardingSettingsChanged(left: OnboardingSettings, right: OnboardingSettings): boolean {
+  return left.enabled !== right.enabled
+    || left.title !== right.title
+    || left.wlanInfo !== right.wlanInfo
+    || left.voiceInfo !== right.voiceInfo
+    || left.foodInfo !== right.foodInfo
+    || left.scheduleInfo !== right.scheduleInfo
+    || left.helpInfo !== right.helpInfo;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }).format(new Date(value));
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
 }
 
 function formatNumber(value: number): string {
