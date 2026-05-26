@@ -13,6 +13,8 @@ Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 - Markdown-Bilder in Onboarding-Texten können links, mittig oder rechts ausgerichtet werden.
 - Markdown-Bilder in Onboarding-Texten können per Toolbar auf 25%, 50%, 75% oder 100% Breite gesetzt werden.
 - TV-Seite kann Onboarding-Kategorien als verschiebbare Boxen in linker und rechter TV-Spalte darstellen.
+- Onboarding-Bilder können in einer Markdown-Zeile nebeneinander dargestellt und bis 200% bzw. 2400px skaliert werden.
+- Admins können zeitlich begrenzte Info-Meldungen veröffentlichen, die auf der TV-Seite sichtbar sind und bei Besuchern als Popup erscheinen.
 
 ### Behoben
 
@@ -20,6 +22,7 @@ Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 - Onboarding-Bildgrößen werden in Start- und TV-Ansicht einheitlich über die Markdown-Bildattribute dargestellt.
 - `docker-compose.yml` enthält keine private Beispiel-Domain mehr; `LAN_VOTE_PUBLIC_URL` ist jetzt ein Pflichtwert aus `.env`.
 - `qrcode` ist als Produktionsabhängigkeit deklariert.
+- Spiele im Spiel-Pool zeigen nun an, ob sie bereits in der geplanten Abstimmung enthalten sind, und können dort direkt wieder abgewählt werden.
 
 ## 2026-05-25
 

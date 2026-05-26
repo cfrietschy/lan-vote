@@ -196,4 +196,27 @@ describe("Store", () => {
     expect(store.saveAppSettings({ participantPollsEnabled: true })).toEqual({ participantPollsEnabled: true });
     expect(store.getPublicState().settings.participantPollsEnabled).toBe(true);
   });
+
+  it("manages active admin notices with expiry", () => {
+    const store = createStore();
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+
+    const notice = store.saveAdminNotice({ title: "Pizza ist da", message: "Bitte vorne abholen.", expiresAt });
+
+    expect(notice.title).toBe("Pizza ist da");
+    expect(store.getPublicState().adminNotice?.message).toBe("Bitte vorne abholen.");
+    expect(store.getAdminNotice()?.expiresAt).toBe(expiresAt);
+
+    store.clearAdminNotice();
+    expect(store.getPublicState().adminNotice).toBeNull();
+  });
+
+  it("does not expose expired admin notices", () => {
+    const store = createStore();
+    db!.prepare("INSERT INTO admin_notice (singleton, id, title, message, expires_at, created_at) VALUES (1, ?, ?, ?, ?, ?)")
+      .run("old-notice", "Alt", "Schon vorbei", new Date(Date.now() - 1000).toISOString(), new Date(Date.now() - 60_000).toISOString());
+
+    expect(store.getPublicState().adminNotice).toBeNull();
+    expect(() => store.saveAdminNotice({ title: "Alt", message: "Schon vorbei", expiresAt: new Date(Date.now() - 1000).toISOString() })).toThrow("Ablaufdatum muss in der Zukunft liegen.");
+  });
 });

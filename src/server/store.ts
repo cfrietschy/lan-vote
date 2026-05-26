@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type {
   ActivePoll,
+  AdminNotice,
   AppSettings,
   GameDraftSnapshot,
   GameOption,
@@ -93,6 +94,14 @@ type AppSettingsRow = {
   participant_polls_enabled: number;
 };
 
+type AdminNoticeRow = {
+  id: string;
+  title: string;
+  message: string;
+  expires_at: string;
+  created_at: string;
+};
+
 type ResultStats = {
   votes: number;
   firstPlaceVotes: number;
@@ -121,6 +130,12 @@ export type TemplateInput = {
   games: GameInput[];
 };
 
+export type AdminNoticeInput = {
+  title: string;
+  message: string;
+  expiresAt: string;
+};
+
 const rankWeights = [3, 2, 1];
 
 export class Store {
@@ -141,6 +156,7 @@ export class Store {
       history: this.getHistory(),
       onboarding,
       settings: this.getAppSettings(),
+      adminNotice: this.getAdminNotice(),
       server: {
         lanAddress: this.config.lanAddress,
         port: this.config.port,
@@ -499,6 +515,43 @@ export class Store {
     return this.getAppSettings();
   }
 
+  getAdminNotice(): AdminNotice | null {
+    const row = this.db.prepare("SELECT id, title, message, expires_at, created_at FROM admin_notice WHERE singleton = 1").get() as AdminNoticeRow | undefined;
+    if (!row) return null;
+    if (Date.parse(row.expires_at) <= Date.now()) return null;
+    return mapAdminNotice(row);
+  }
+
+  saveAdminNotice(input: AdminNoticeInput): AdminNotice {
+    const expiresAt = new Date(input.expiresAt);
+    if (!Number.isFinite(expiresAt.getTime())) throw new ApiError(400, "Ablaufdatum ist ungültig.");
+    if (expiresAt.getTime() <= Date.now()) throw new ApiError(400, "Ablaufdatum muss in der Zukunft liegen.");
+    const notice: AdminNotice = {
+      id: shortId(),
+      title: input.title.trim().slice(0, 80),
+      message: input.message.trim().slice(0, 800),
+      expiresAt: expiresAt.toISOString(),
+      createdAt: now()
+    };
+    this.db
+      .prepare(
+        `INSERT INTO admin_notice (singleton, id, title, message, expires_at, created_at)
+         VALUES (1, ?, ?, ?, ?, ?)
+         ON CONFLICT(singleton) DO UPDATE SET
+           id = excluded.id,
+           title = excluded.title,
+           message = excluded.message,
+           expires_at = excluded.expires_at,
+           created_at = excluded.created_at`
+      )
+      .run(notice.id, notice.title, notice.message, notice.expiresAt, notice.createdAt);
+    return notice;
+  }
+
+  clearAdminNotice(): void {
+    this.db.prepare("DELETE FROM admin_notice WHERE singleton = 1").run();
+  }
+
   private closeActivePollInternal(): void {
     const active = this.getActivePollRow();
     if (active) {
@@ -691,6 +744,16 @@ function mapTemplate(row: TemplateRow): PollTemplate {
     games: parseGames(row.games_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function mapAdminNotice(row: AdminNoticeRow): AdminNotice {
+  return {
+    id: row.id,
+    title: row.title,
+    message: row.message,
+    expiresAt: row.expires_at,
+    createdAt: row.created_at
   };
 }
 

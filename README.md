@@ -17,6 +17,8 @@ Hinweis: Diese Software ist komplett gevibecoded.
 - Abstimmungsvorlagen für wiederkehrende Runden
 - Optionale LAN-Onboarding-Seite für WLAN/LAN, Voice, Essen, Ablauf und Hilfe
 - Markdown in Onboarding-Texten inklusive Links und eingebetteten Bildern
+- Bildreihen und skalierbare Bilder in Onboarding-Texten
+- Admin-Info-Meldungen für TV-Ansicht und Besucher-Popups
 - In-App-Benachrichtigung bei neuen Abstimmungen per Socket.IO
 - TV-Modus mit auffälliger Animation und optionalem Signalton
 - TV-Modus unter `/tv` für den Hauptmonitor
@@ -187,6 +189,8 @@ Der Steam API Key bleibt serverseitig. Das Frontend ruft nur `/api/steam/search`
 - Im Adminbereich werden Spiel-Pool, Vorlagen, Onboarding-Texte und laufende Abstimmungen verwaltet.
 - Offene Clients bekommen bei neuer Abstimmung einen Hinweis. Ton muss im Browser einmal über `Ton aktivieren` freigeschaltet werden.
 - Onboarding-Texte unterstützen Markdown, z.B. Listen, Überschriften, `[Link](https://...)` und `![Bild](https://...)`. Gerenderte URLs können direkt kopiert werden.
+- Mehrere Bilder auf derselben Markdown-Zeile werden nebeneinander angezeigt, z.B. `![](/uploads/a.png) {50%} ![](/uploads/b.png) {50%}`. Bildbreiten bis `200%` oder `2400px` sind möglich.
+- Admin-Meldungen werden mit Ablaufdatum veröffentlicht, erscheinen auf der TV-Ansicht und werden Besuchern einmalig als Popup angezeigt.
 
 ## Lizenz
 

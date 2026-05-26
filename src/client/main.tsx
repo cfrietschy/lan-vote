@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import QRCode from "qrcode";
 import { io } from "socket.io-client";
-import type { AppSettings, GameDraftSnapshot, OnboardingSection, OnboardingSettings, OnboardingTvLayout, PollTemplate, PoolGame, PublicState, ResultOption, SteamGameDetails } from "../shared/types";
+import type { AdminNotice, AppSettings, GameDraftSnapshot, OnboardingSection, OnboardingSettings, OnboardingTvLayout, PollTemplate, PoolGame, PublicState, ResultOption, SteamGameDetails } from "../shared/types";
 import "./styles.css";
 
 type GameDraft = {
@@ -76,7 +76,7 @@ type UploadedImagesResponse = {
   orphanCount: number;
 };
 
-type AdminTab = "poll" | "templates" | "add-games" | "pool" | "active" | "onboarding" | "history" | "settings";
+type AdminTab = "poll" | "templates" | "add-games" | "pool" | "active" | "onboarding" | "notice" | "history" | "settings";
 type PoolPlayerFilter = "all" | "2-4" | "5-8" | "9-16" | "17+";
 type PoolSourceFilter = "all" | "steam" | "manual";
 type DefaultOnboardingKey = "wlanInfo" | "voiceInfo" | "foodInfo" | "scheduleInfo" | "helpInfo";
@@ -98,6 +98,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "active", label: "Laufend" },
   { id: "history", label: "Historie" },
   { id: "onboarding", label: "Onboarding" },
+  { id: "notice", label: "Meldung" },
   { id: "settings", label: "Einstellungen" }
 ];
 
@@ -109,10 +110,14 @@ type PollStartedNotice = {
   receivedAt: number;
 };
 
+type VisitorNotice =
+  | { kind: "poll"; title: string; voteUrl: string; qrUrl: string; receivedAt: number }
+  | { kind: "admin"; id: string; title: string; message: string; expiresAt: string; receivedAt: number };
+
 function App() {
   const [state, setState] = useState<PublicState | null>(null);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState<PollStartedNotice | null>(null);
+  const [notice, setNotice] = useState<VisitorNotice | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(() => isNotificationSoundEnabled());
   const [theme, setTheme] = useState<ThemeMode>(() => getSavedTheme());
 
@@ -120,9 +125,13 @@ function App() {
     fetchState().then(setState).catch((err: Error) => setError(err.message));
     socket.on("state", setState);
     socket.on("poll-started", handlePollStarted);
+    socket.on("admin-notice", handleAdminNotice);
+    socket.on("admin-notice-cleared", handleAdminNoticeCleared);
     return () => {
       socket.off("state", setState);
       socket.off("poll-started", handlePollStarted);
+      socket.off("admin-notice", handleAdminNotice);
+      socket.off("admin-notice-cleared", handleAdminNoticeCleared);
     };
   }, [soundEnabled]);
 
@@ -137,9 +146,30 @@ function App() {
     localStorage.setItem("lanVoteTheme", theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (!state?.adminNotice || hasSeenAdminNotice(state.adminNotice.id)) return;
+    showAdminNotice(state.adminNotice);
+  }, [state?.adminNotice?.id]);
+
   function handlePollStarted(payload: Omit<PollStartedNotice, "receivedAt">) {
-    const nextNotice = { ...payload, receivedAt: Date.now() };
+    const nextNotice: VisitorNotice = { kind: "poll", ...payload, receivedAt: Date.now() };
     setNotice(nextNotice);
+    notifyDevice();
+    if (soundEnabled) playNewPollSound();
+  }
+
+  function handleAdminNotice(payload: AdminNotice) {
+    if (hasSeenAdminNotice(payload.id)) return;
+    showAdminNotice(payload);
+  }
+
+  function handleAdminNoticeCleared() {
+    setNotice((current) => current?.kind === "admin" ? null : current);
+  }
+
+  function showAdminNotice(payload: AdminNotice) {
+    markAdminNoticeSeen(payload.id);
+    setNotice({ kind: "admin", ...payload, receivedAt: Date.now() });
     notifyDevice();
     if (soundEnabled) playNewPollSound();
   }
@@ -175,7 +205,7 @@ function Shell({
   children
 }: {
   state: PublicState | null;
-  notice?: PollStartedNotice | null;
+  notice?: VisitorNotice | null;
   soundEnabled?: boolean;
   onEnableSound?: () => void;
   theme: ThemeMode;
@@ -234,8 +264,17 @@ function ThemeToggle({ value, onChange }: { value: ThemeMode; onChange: (theme: 
   );
 }
 
-function NotificationToast({ notice }: { notice?: PollStartedNotice | null }) {
+function NotificationToast({ notice }: { notice?: VisitorNotice | null }) {
   if (!notice) return null;
+  if (notice.kind === "admin") {
+    return (
+      <aside className="notification-toast admin-notice-toast" role="status" aria-live="polite">
+        <strong>{notice.title}</strong>
+        <span>{notice.message}</span>
+        <small>Bis {formatDateTime(notice.expiresAt)}</small>
+      </aside>
+    );
+  }
   return (
     <aside className="notification-toast" role="status" aria-live="polite">
       <strong>Neue Abstimmung</strong>
@@ -314,7 +353,7 @@ function TvView({
   onThemeChange
 }: {
   state: PublicState;
-  notice: PollStartedNotice | null;
+  notice: VisitorNotice | null;
   soundEnabled: boolean;
   onEnableSound: () => void;
   theme: ThemeMode;
@@ -322,24 +361,26 @@ function TvView({
 }) {
   const hasActivePoll = Boolean(state.activePoll && state.activeResults);
   const tvClassName = `tv ${notice ? "tv-flash" : ""} ${hasActivePoll ? "tv-active" : "tv-idle"}`;
+  const pollNotice = notice?.kind === "poll" ? notice : null;
 
   return (
     <main className={tvClassName}>
       <SoundToggle enabled={soundEnabled} onEnable={onEnableSound} />
       <ThemeToggle value={theme} onChange={onThemeChange} />
-      {notice ? (
+      {pollNotice ? (
         <aside className="tv-alert" role="status" aria-live="assertive">
           <span>Neue Abstimmung</span>
-          <strong>{notice.title}</strong>
+          <strong>{pollNotice.title}</strong>
           <div className="tv-alert-grid">
-            <QrCode value={notice.qrUrl} />
+            <QrCode value={pollNotice.qrUrl} />
             <div>
               <p>Jetzt abstimmen</p>
-              <div className="url-box">{notice.qrUrl}</div>
+              <div className="url-box">{pollNotice.qrUrl}</div>
             </div>
           </div>
         </aside>
       ) : null}
+      {state.adminNotice ? <AdminNoticeBanner notice={state.adminNotice} tv /> : null}
       {hasActivePoll ? (
         <section className="tv-main tv-main-active">
           <div className="tv-poll-panel">
@@ -378,6 +419,16 @@ function TvView({
         </section>
       )}
     </main>
+  );
+}
+
+function AdminNoticeBanner({ notice, tv = false }: { notice: AdminNotice; tv?: boolean }) {
+  return (
+    <aside className={tv ? "admin-notice-banner tv-admin-notice" : "admin-notice-banner"} role="status" aria-live="polite">
+      <strong>{notice.title}</strong>
+      <span>{notice.message}</span>
+      <small>Bis {formatDateTime(notice.expiresAt)}</small>
+    </aside>
   );
 }
 
@@ -675,6 +726,16 @@ function AdminView({ state, onState }: { state: PublicState; onState: (state: Pu
     setAdminStatus(nextGames === games ? `${label} ist bereits ausgewählt.` : `${label} hinzugefügt.`);
   }
 
+  function togglePoolGame(game: PoolGame) {
+    const draft = poolToDraft(game);
+    if (isDraftSelected(games, draft)) {
+      setGames(removeDraft(games, draft));
+      setAdminStatus(`${game.name} aus Abstimmung entfernt.`);
+      return;
+    }
+    addGameToDraft(draft, game.name);
+  }
+
   return (
     <section className="admin-layout">
       <nav className="admin-tabs" aria-label="Adminbereiche">
@@ -745,7 +806,7 @@ function AdminView({ state, onState }: { state: PublicState; onState: (state: Pu
           </>
         ) : null}
 
-        {activeTab === "pool" ? <PoolManager groupSize={groupSize} onAddToPoll={(game) => addGameToDraft(poolToDraft(game), game.name)} /> : null}
+        {activeTab === "pool" ? <PoolManager groupSize={groupSize} selectedGames={games} onTogglePoll={togglePoolGame} /> : null}
 
         {activeTab === "active" ? (
           <>
@@ -773,6 +834,13 @@ function AdminView({ state, onState }: { state: PublicState; onState: (state: Pu
           <>
             <h1>Onboarding</h1>
             <OnboardingAdmin initial={state.onboarding} />
+          </>
+        ) : null}
+
+        {activeTab === "notice" ? (
+          <>
+            <h1>Meldung</h1>
+            <AdminNoticeManager current={state.adminNotice} onState={onState} />
           </>
         ) : null}
 
@@ -1036,7 +1104,7 @@ function SteamTopMultiplayer({ onAddToPoll }: { onAddToPoll: (game: GameDraft) =
   );
 }
 
-function PoolManager({ groupSize, onAddToPoll }: { groupSize: number; onAddToPoll: (game: PoolGame) => void }) {
+function PoolManager({ groupSize, selectedGames, onTogglePoll }: { groupSize: number; selectedGames: GameDraft[]; onTogglePoll: (game: PoolGame) => void }) {
   const [games, setGames] = useState<PoolGame[]>([]);
   const [status, setStatus] = useState("");
   const [editing, setEditing] = useState<GameDraft>(emptyPoolDraft());
@@ -1136,19 +1204,23 @@ function PoolManager({ groupSize, onAddToPoll }: { groupSize: number; onAddToPol
       </div>
       {!visibleGames.length ? <div className="empty">Keine passenden Spiele im Pool. Prüfe Spielerzahl oder füge Spiele hinzu.</div> : (
         <div className="pool-list">
-          {visibleGames.map((game) => (
-            <article className={`pool-row ${game.coverUrl ? "" : "no-cover"}`} key={game.id}>
-              {game.coverUrl ? <img src={game.coverUrl} alt="" loading="lazy" /> : null}
-              <div>
-                <strong>{game.name}</strong>
-                <span className="muted">{game.note || (game.steamAppId ? `Steam AppID ${game.steamAppId}` : "Manuell")}</span>
-                <GameMeta game={game} />
-              </div>
-              <button type="button" onClick={() => onAddToPoll(game)}>Auswählen</button>
-              <button type="button" className="secondary" onClick={() => setEditing(poolToDraft(game))}>Bearbeiten</button>
-              <button type="button" className="danger" onClick={() => remove(game.id)}>Löschen</button>
-            </article>
-          ))}
+          {visibleGames.map((game) => {
+            const selected = isDraftSelected(selectedGames, poolToDraft(game));
+            return (
+              <article className={`pool-row ${game.coverUrl ? "" : "no-cover"} ${selected ? "selected" : ""}`} key={game.id}>
+                {game.coverUrl ? <img src={game.coverUrl} alt="" loading="lazy" /> : null}
+                <div>
+                  <strong>{game.name}</strong>
+                  <span className="muted">{game.note || (game.steamAppId ? `Steam AppID ${game.steamAppId}` : "Manuell")}</span>
+                  {selected ? <span className="status-pill">In Abstimmung</span> : null}
+                  <GameMeta game={game} />
+                </div>
+                <button type="button" className={selected ? "secondary" : ""} onClick={() => onTogglePoll(game)}>{selected ? "Aus Abstimmung entfernen" : "Zur Abstimmung"}</button>
+                <button type="button" className="secondary" onClick={() => setEditing(poolToDraft(game))}>Bearbeiten</button>
+                <button type="button" className="danger" onClick={() => remove(game.id)}>Löschen</button>
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
@@ -1473,6 +1545,12 @@ function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { lab
     replaceSelection(`${current.slice(0, lineStart)}${replacement}${current.slice(lineEnd)}`, lineStart + replacement.length, lineStart + replacement.length);
   }
 
+  function setCustomImageWidth() {
+    const value = window.prompt("Bildbreite, z.B. 120%, 480px oder 150%", "150%");
+    const width = normalizeImageSize(value || "");
+    if (width) updateImageLine({ width });
+  }
+
   return (
     <div className="markdown-editor">
       <span className="editor-label">{label}</span>
@@ -1493,6 +1571,10 @@ function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { lab
         <button type="button" className="secondary compact-button" title="Bild auf 50 Prozent Breite setzen" onClick={() => updateImageLine({ width: "50%" })}>50%</button>
         <button type="button" className="secondary compact-button" title="Bild auf 75 Prozent Breite setzen" onClick={() => updateImageLine({ width: "75%" })}>75%</button>
         <button type="button" className="secondary compact-button" title="Bild auf volle Breite setzen" onClick={() => updateImageLine({ width: "100%" })}>100%</button>
+        <button type="button" className="secondary compact-button" title="Bild auf 125 Prozent Breite setzen" onClick={() => updateImageLine({ width: "125%" })}>125%</button>
+        <button type="button" className="secondary compact-button" title="Bild auf 150 Prozent Breite setzen" onClick={() => updateImageLine({ width: "150%" })}>150%</button>
+        <button type="button" className="secondary compact-button" title="Bild auf 200 Prozent Breite setzen" onClick={() => updateImageLine({ width: "200%" })}>200%</button>
+        <button type="button" className="secondary compact-button" title="Freie Bildbreite setzen" onClick={setCustomImageWidth}>Breite...</button>
       </div>
       <textarea ref={textareaRef} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(event) => {
@@ -1546,6 +1628,62 @@ function UploadedImageManager({
       ) : (
         <div className="empty">Noch keine Bilder hochgeladen.</div>
       )}
+    </section>
+  );
+}
+
+function AdminNoticeManager({ current, onState }: { current: AdminNotice | null; onState: (state: PublicState) => void }) {
+  const [title, setTitle] = useState(current?.title || "");
+  const [message, setMessage] = useState(current?.message || "");
+  const [expiresAt, setExpiresAt] = useState(toDateTimeLocalValue(current?.expiresAt || defaultNoticeExpiry()));
+  const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    setTitle(current?.title || "");
+    setMessage(current?.message || "");
+    setExpiresAt(toDateTimeLocalValue(current?.expiresAt || defaultNoticeExpiry()));
+  }, [current?.id]);
+
+  async function publish() {
+    try {
+      const notice = await postJson<AdminNotice>("/api/admin-notice", {
+        title,
+        message,
+        expiresAt: new Date(expiresAt).toISOString()
+      });
+      setStatus(`Meldung "${notice.title}" veröffentlicht.`);
+      onState(await fetchState());
+    } catch (error) {
+      setStatus((error as Error).message);
+    }
+  }
+
+  async function remove() {
+    try {
+      await deleteJson("/api/admin-notice");
+      setStatus("Meldung entfernt.");
+      setTitle("");
+      setMessage("");
+      setExpiresAt(toDateTimeLocalValue(defaultNoticeExpiry()));
+      onState(await fetchState());
+    } catch (error) {
+      setStatus((error as Error).message);
+    }
+  }
+
+  return (
+    <section className="notice-manager">
+      {current ? <AdminNoticeBanner notice={current} /> : <div className="empty">Aktuell ist keine Admin-Meldung aktiv.</div>}
+      <div className="compact-grid">
+        <label>Titel<input maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="z.B. Pizza ist da" /></label>
+        <label>Sichtbar bis<input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
+      </div>
+      <label>Nachricht<textarea maxLength={800} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Kurze Info für TV und Besucher" /></label>
+      <div className="actions">
+        <button type="button" disabled={!title.trim() || !message.trim() || !expiresAt} onClick={publish}>Meldung anzeigen</button>
+        <button type="button" className="secondary" disabled={!current} onClick={remove}>Meldung entfernen</button>
+      </div>
+      {status ? <div className="status">{status}</div> : null}
     </section>
   );
 }
@@ -1694,7 +1832,10 @@ type MarkdownBlock =
   | { type: "heading"; level: 2 | 3 | 4; text: string }
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] }
-  | { type: "image"; alt: string; url: string; align: MarkdownImageAlign; width?: string };
+  | MarkdownImageBlock
+  | { type: "imageRow"; images: MarkdownImageBlock[] };
+
+type MarkdownImageBlock = { type: "image"; alt: string; url: string; align: MarkdownImageAlign; width?: string };
 
 type MarkdownImageAlign = "left" | "center" | "right";
 type MarkdownImageAttributes = { align: MarkdownImageAlign; width?: string };
@@ -1713,6 +1854,7 @@ function MarkdownContent({ value }: { value: string }) {
           return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkdown text={item} /></li>)}</ul>;
         }
         if (block.type === "image") return <MarkdownImage alt={block.alt} url={block.url} align={block.align} width={block.width} key={index} />;
+        if (block.type === "imageRow") return <MarkdownImageRow images={block.images} key={index} />;
         return <p key={index}><InlineMarkdown text={block.text} /></p>;
       })}
     </div>
@@ -1728,7 +1870,7 @@ function MarkdownImage({ alt, url, align = "center", width }: { alt: string; url
   if (!safeUrl) return <span className="muted">Bild-URL nicht erlaubt: {url}</span>;
   const style = width ? ({ "--markdown-image-width": width } as React.CSSProperties) : undefined;
   return (
-    <figure className={`markdown-image align-${align}`} style={style}>
+    <figure className={`markdown-image align-${align} ${width ? "sized" : ""}`} style={style}>
       <img src={safeUrl} alt={alt} loading="lazy" />
       {alt ? (
         <figcaption>
@@ -1737,6 +1879,15 @@ function MarkdownImage({ alt, url, align = "center", width }: { alt: string; url
         </figcaption>
       ) : null}
     </figure>
+  );
+}
+
+function MarkdownImageRow({ images }: { images: MarkdownImageBlock[] }) {
+  const align = images[0]?.align || "center";
+  return (
+    <div className={`markdown-image-row align-${align}`}>
+      {images.map((image, index) => <MarkdownImage alt={image.alt} url={image.url} align={image.align} width={image.width} key={`${image.url}-${index}`} />)}
+    </div>
   );
 }
 
@@ -1780,12 +1931,11 @@ function parseMarkdown(value: string): MarkdownBlock[] {
       continue;
     }
 
-    const image = trimmed.match(/^!\[([^\]]*)\]\(([^)\s]+)\)(?:\s*\{([^}]*)\})?$/i);
-    if (image) {
+    const imageRow = parseMarkdownImageRow(trimmed);
+    if (imageRow) {
       flushParagraph();
       flushList();
-      const attributes = parseMarkdownImageAttributes(image[3]);
-      blocks.push({ type: "image", alt: image[1] || "", url: image[2] || "", ...attributes });
+      blocks.push(imageRow.length === 1 ? imageRow[0]! : { type: "imageRow", images: imageRow });
       continue;
     }
 
@@ -1811,6 +1961,22 @@ function parseMarkdown(value: string): MarkdownBlock[] {
   flushParagraph();
   flushList();
   return blocks;
+}
+
+function parseMarkdownImageRow(value: string): MarkdownImageBlock[] | null {
+  const images: MarkdownImageBlock[] = [];
+  const imagePattern = /!\[([^\]]*)\]\(([^)\s]+)\)(?:\s*\{([^}]*)\})?/gy;
+  let index = 0;
+  while (index < value.length) {
+    const whitespace = value.slice(index).match(/^\s+/);
+    if (whitespace) index += whitespace[0].length;
+    imagePattern.lastIndex = index;
+    const match = imagePattern.exec(value);
+    if (!match) return null;
+    images.push({ type: "image", alt: match[1] || "", url: match[2] || "", ...parseMarkdownImageAttributes(match[3]) });
+    index = imagePattern.lastIndex;
+  }
+  return images.length ? images : null;
 }
 
 function renderInlineMarkdown(text: string): React.ReactNode[] {
@@ -1896,10 +2062,10 @@ function normalizeImageSize(value: string | undefined): string | undefined {
   if (normalized === "voll" || normalized === "full") return "100%";
 
   const percent = normalized.match(/^(\d{1,3})%$/);
-  if (percent) return `${Math.min(100, Math.max(5, Number(percent[1]!)))}%`;
+  if (percent) return `${Math.min(200, Math.max(5, Number(percent[1]!)))}%`;
 
   const pixels = normalized.match(/^(\d{2,4})px$/);
-  if (pixels) return `${Math.min(1200, Math.max(80, Number(pixels[1]!)))}px`;
+  if (pixels) return `${Math.min(2400, Math.max(80, Number(pixels[1]!)))}px`;
 
   return undefined;
 }
@@ -2084,9 +2250,23 @@ async function getSteamDetails(appid: number): Promise<SteamGameDetails> {
 }
 
 function addDraft(games: GameDraft[], game: GameDraft): GameDraft[] {
-  const key = game.steamAppId ? `steam:${game.steamAppId}` : `name:${game.name.toLocaleLowerCase("de-DE")}`;
-  const exists = games.some((item) => (item.steamAppId ? `steam:${item.steamAppId}` : `name:${item.name.toLocaleLowerCase("de-DE")}`) === key);
+  const key = gameIdentityKey(game);
+  const exists = games.some((item) => gameIdentityKey(item) === key);
   return exists ? games : [...games, game];
+}
+
+function removeDraft(games: GameDraft[], game: GameDraft): GameDraft[] {
+  const key = gameIdentityKey(game);
+  return games.filter((item) => gameIdentityKey(item) !== key);
+}
+
+function isDraftSelected(games: GameDraft[], game: GameDraft): boolean {
+  const key = gameIdentityKey(game);
+  return games.some((item) => gameIdentityKey(item) === key);
+}
+
+function gameIdentityKey(game: Pick<GameDraft, "name" | "steamAppId">): string {
+  return game.steamAppId ? `steam:${game.steamAppId}` : `name:${game.name.trim().toLocaleLowerCase("de-DE")}`;
 }
 
 function detailsToDraft(details: SteamGameDetails): GameDraft {
@@ -2377,6 +2557,25 @@ function currentRoute(): Route {
 function getSavedTheme(): ThemeMode {
   const saved = localStorage.getItem("lanVoteTheme");
   return saved === "light" || saved === "dark" ? saved : "dark";
+}
+
+function hasSeenAdminNotice(id: string): boolean {
+  return localStorage.getItem("lanVoteSeenAdminNoticeId") === id;
+}
+
+function markAdminNoticeSeen(id: string): void {
+  localStorage.setItem("lanVoteSeenAdminNoticeId", id);
+}
+
+function defaultNoticeExpiry(): string {
+  return new Date(Date.now() + 60 * 60_000).toISOString();
+}
+
+function toDateTimeLocalValue(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
 }
 
 function removeImageFromOnboarding(settings: OnboardingSettings, imageUrl: string): OnboardingSettings {

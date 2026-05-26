@@ -10,7 +10,7 @@ import { loadConfig } from "./config.js";
 import { openDatabase } from "./db.js";
 import { defaultPoolGames } from "./lan-classics.js";
 import { GameMetadataCache } from "./metadata-cache.js";
-import { appSettingsSchema, createPollSchema, onboardingSchema, participantPollSchema, pollTemplateSchema, poolGameSchema, steamSearchSchema, steamTopGamesSchema, uploadImageSchema, voteSchema } from "./schemas.js";
+import { adminNoticeSchema, appSettingsSchema, createPollSchema, onboardingSchema, participantPollSchema, pollTemplateSchema, poolGameSchema, steamSearchSchema, steamTopGamesSchema, uploadImageSchema, voteSchema } from "./schemas.js";
 import { SteamApiError, SteamService } from "./steam.js";
 import { ApiError, Store, type GameInput } from "./store.js";
 
@@ -209,6 +209,29 @@ app.put("/api/settings", requireAdmin, (req, res, next) => {
   }
 });
 
+app.post("/api/admin-notice", requireAdmin, (req, res, next) => {
+  try {
+    const payload = adminNoticeSchema.parse(req.body);
+    const notice = store.saveAdminNotice(payload);
+    emitState();
+    emitAdminNotice(notice);
+    res.status(201).json(notice);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/admin-notice", requireAdmin, (_req, res, next) => {
+  try {
+    store.clearAdminNotice();
+    emitState();
+    io.emit("admin-notice-cleared");
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/polls", requireAdmin, (req, res, next) => {
   try {
     const payload = createPollSchema.parse(req.body);
@@ -359,6 +382,10 @@ function emitPollStarted(state: ReturnType<Store["getPublicState"]>): void {
     voteUrl: state.server.voteUrl,
     qrUrl: state.server.qrUrl
   });
+}
+
+function emitAdminNotice(notice: NonNullable<ReturnType<Store["getAdminNotice"]>>): void {
+  io.emit("admin-notice", notice);
 }
 
 async function refreshPoolMetadata(): Promise<void> {

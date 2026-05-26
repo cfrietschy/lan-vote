@@ -103,6 +103,12 @@ export const appSettingsSchema = z.object({
   participantPollsEnabled: z.boolean().default(false)
 });
 
+export const adminNoticeSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+  message: z.string().trim().min(1).max(800),
+  expiresAt: z.string().trim().datetime({ offset: true })
+});
+
 export const pollTemplateSchema = z.object({
   id: z.string().trim().min(1).max(80).optional(),
   name: z.string().trim().min(1).max(60),

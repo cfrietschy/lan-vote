@@ -133,6 +133,14 @@ export type AppSettings = {
   participantPollsEnabled: boolean;
 };
 
+export type AdminNotice = {
+  id: string;
+  title: string;
+  message: string;
+  expiresAt: string;
+  createdAt: string;
+};
+
 export type SteamGameDetails = {
   appid: number;
   name: string;
@@ -153,6 +161,7 @@ export type PublicState = {
   history: HistoryEntry[];
   onboarding: OnboardingSettings;
   settings: AppSettings;
+  adminNotice: AdminNotice | null;
   server: {
     lanAddress: string;
     port: number;
