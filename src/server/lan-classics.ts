@@ -89,7 +89,6 @@ export const defaultPoolGames: GameInput[] = [
   curatorSteamClassic(413150, "Stardew Valley", "2-4", 2, 4),
   curatorSteamClassic(648800, "Raft", "2-4", 2, 4),
   curatorSteamClassic(553850, "HELLDIVERS 2", "2-4", 2, 4),
-  curatorSteamClassic(221380, "Age of Empires II (Retired)", "5-8", 2, 8),
   curatorSteamClassic(24790, "Command & Conquer 3 Tiberium Wars", "5-8", 2, 8),
   curatorSteamClassic(231430, "Company of Heroes 2", "5-8", 2, 8),
   curatorSteamClassic(2990, "FlatOut 2", "5-8", 2, 8),
