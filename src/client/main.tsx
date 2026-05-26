@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import QRCode from "qrcode";
 import { io } from "socket.io-client";
-import type { AppSettings, GameDraftSnapshot, OnboardingSection, OnboardingSettings, PollTemplate, PoolGame, PublicState, ResultOption, SteamGameDetails } from "../shared/types";
+import type { AppSettings, GameDraftSnapshot, OnboardingSection, OnboardingSettings, OnboardingTvLayout, PollTemplate, PoolGame, PublicState, ResultOption, SteamGameDetails } from "../shared/types";
 import "./styles.css";
 
 type GameDraft = {
@@ -80,6 +80,7 @@ type AdminTab = "poll" | "templates" | "add-games" | "pool" | "active" | "onboar
 type PoolPlayerFilter = "all" | "2-4" | "5-8" | "9-16" | "17+";
 type PoolSourceFilter = "all" | "steam" | "manual";
 type DefaultOnboardingKey = "wlanInfo" | "voiceInfo" | "foodInfo" | "scheduleInfo" | "helpInfo";
+type TvLayoutColumn = keyof OnboardingTvLayout;
 
 const defaultOnboardingCategories: Array<{ id: string; title: string; key: DefaultOnboardingKey; placeholder: string }> = [
   { id: "wlan", title: "WLAN / LAN", key: "wlanInfo", placeholder: "- SSID: LAN\n- Passwort: ...\n![](/uploads/...)" },
@@ -290,8 +291,8 @@ function OnboardingView({ state }: { state: PublicState }) {
       </div>
       {items.length ? (
         <div className="info-grid">
-          {items.map(({ title, value }) => (
-            <section className="panel info-panel" key={title}>
+          {items.map(({ id, title, value }) => (
+            <section className="panel info-panel" key={id}>
               <h2>{title}</h2>
               <MarkdownContent value={value} />
             </section>
@@ -381,19 +382,24 @@ function TvView({
 }
 
 function TvOnboardingInfo({ onboarding, compact = false }: { onboarding: OnboardingSettings; compact?: boolean }) {
-  const items = getOnboardingItems(onboarding);
+  const columns = getTvOnboardingColumns(onboarding);
+  const hasItems = columns.left.length > 0 || columns.right.length > 0;
 
   return (
     <section className={`tv-onboarding ${compact ? "compact" : ""}`} aria-label="LAN-Infos">
       <p className="muted">LAN-Infos</p>
       <h2>{onboarding.title}</h2>
-      {items.length ? (
-        <div className="tv-info-list">
-          {items.map(({ title, value }) => (
-            <article className="tv-info-item" key={title}>
-              <h3>{title}</h3>
-              <MarkdownContent value={value} />
-            </article>
+      {hasItems ? (
+        <div className="tv-info-box-grid">
+          {(["left", "right"] as const).map((column) => (
+            <div className="tv-info-column" key={column}>
+              {columns[column].map(({ id, title, value }) => (
+                <article className="tv-info-item" key={id}>
+                  <h3>{title}</h3>
+                  <MarkdownContent value={value} />
+                </article>
+              ))}
+            </div>
           ))}
         </div>
       ) : (
@@ -489,6 +495,8 @@ function VoteView({ state }: { state: PublicState }) {
             {state.activePoll.options.map((option) => {
               const rank = rankings.indexOf(option.id) + 1;
               const installed = installedOptionIds.includes(option.id);
+              const rankingLimitReached = rankings.length >= 3;
+              const canAddToRanking = Boolean(rank) || !rankingLimitReached;
               return (
                 <article className={`choice-card ${rank ? "selected" : ""}`} key={option.id}>
                   {rank ? <span className="rank-badge">Rang {rank}</span> : null}
@@ -502,8 +510,8 @@ function VoteView({ state }: { state: PublicState }) {
                   </label>
                   <div className="actions">
                     {option.storeUrl ? <SteamStoreLink href={option.storeUrl} label="Steam Store" /> : null}
-                    <button type="button" onClick={() => toggleRanking(option.id)}>
-                      {rank ? "Aus Ranking entfernen" : `Als Rang ${rankings.length + 1} wählen`}
+                    <button type="button" disabled={!canAddToRanking} onClick={() => toggleRanking(option.id)}>
+                      {rank ? "Aus Ranking entfernen" : rankingLimitReached ? "Max. 3 gewählt" : `Als Rang ${rankings.length + 1} wählen`}
                     </button>
                   </div>
                 </article>
@@ -1237,7 +1245,8 @@ function OnboardingAdmin({ initial }: { initial: OnboardingSettings }) {
     setSettings({
       ...settings,
       sections: [...settings.sections, { id, title: "Neue Kategorie", content: "" }],
-      categoryOrder: [...getOnboardingCategoryOrder(settings), id]
+      categoryOrder: [...getOnboardingCategoryOrder(settings), id],
+      tvLayout: addTvLayoutItem(settings.tvLayout, id, "right")
     });
   }
 
@@ -1254,7 +1263,8 @@ function OnboardingAdmin({ initial }: { initial: OnboardingSettings }) {
     setSettings({
       ...settings,
       sections: settings.sections.filter((item) => item.id !== id),
-      categoryOrder: getOnboardingCategoryOrder(settings).filter((item) => item !== id)
+      categoryOrder: getOnboardingCategoryOrder(settings).filter((item) => item !== id),
+      tvLayout: removeTvLayoutItem(settings.tvLayout, id)
     });
   }
 
@@ -1271,6 +1281,15 @@ function OnboardingAdmin({ initial }: { initial: OnboardingSettings }) {
   }
 
   const categories = getOrderedOnboardingCategoryEntries(settings);
+  const tvLayout = getOnboardingTvLayout(settings);
+
+  function moveTvBox(id: string, target: TvLayoutColumn) {
+    setSettings({ ...settings, tvLayout: moveTvLayoutItem(settings.tvLayout, id, target) });
+  }
+
+  function reorderTvBox(column: TvLayoutColumn, id: string, direction: -1 | 1) {
+    setSettings({ ...settings, tvLayout: reorderTvLayoutItem(settings.tvLayout, column, id, direction) });
+  }
 
   return (
     <div className="field-grid">
@@ -1307,10 +1326,64 @@ function OnboardingAdmin({ initial }: { initial: OnboardingSettings }) {
           ))}
         </div>
       </section>
+      <TvOnboardingLayoutManager categories={categories} layout={tvLayout} onMove={moveTvBox} onReorder={reorderTvBox} />
       <UploadedImageManager images={uploadedImages} status={imageStatus} onRefresh={loadUploadedImages} onDelete={deleteUploadedImage} onDeleteOrphans={deleteOrphanedImages} />
       <div className="actions"><button type="button" className="secondary" onClick={save}>Onboarding speichern</button></div>
       {status ? <div className="status">{status}</div> : null}
     </div>
+  );
+}
+
+function TvOnboardingLayoutManager({
+  categories,
+  layout,
+  onMove,
+  onReorder
+}: {
+  categories: OrderedOnboardingCategory[];
+  layout: OnboardingTvLayout;
+  onMove: (id: string, target: TvLayoutColumn) => void;
+  onReorder: (column: TvLayoutColumn, id: string, direction: -1 | 1) => void;
+}) {
+  const labels = new Map(categories.map((category) => [category.id, category.title]));
+  const columns: Array<{ id: TvLayoutColumn; title: string }> = [
+    { id: "left", title: "TV links" },
+    { id: "right", title: "TV rechts" },
+    { id: "hidden", title: "Ausgeblendet" }
+  ];
+
+  return (
+    <section className="tv-layout-manager">
+      <div className="section-title">
+        <h3>TV-Boxen</h3>
+        <span className="muted">Ordnet nur die Onboarding-Boxen im TV-Modus an.</span>
+      </div>
+      <div className="tv-layout-columns">
+        {columns.map((column) => (
+          <section className="tv-layout-column" key={column.id}>
+            <h4>{column.title}</h4>
+            {layout[column.id].length ? (
+              <div className="tv-layout-list">
+                {layout[column.id].map((categoryId, index) => (
+                  <article className="tv-layout-row" key={categoryId}>
+                    <strong>{labels.get(categoryId) || categoryId}</strong>
+                    <div className="actions">
+                      <button type="button" className="secondary compact-button" disabled={index === 0} onClick={() => onReorder(column.id, categoryId, -1)}>Hoch</button>
+                      <button type="button" className="secondary compact-button" disabled={index === layout[column.id].length - 1} onClick={() => onReorder(column.id, categoryId, 1)}>Runter</button>
+                      {column.id !== "left" ? <button type="button" className="secondary compact-button" onClick={() => onMove(categoryId, "left")}>Links</button> : null}
+                      {column.id !== "right" ? <button type="button" className="secondary compact-button" onClick={() => onMove(categoryId, "right")}>Rechts</button> : null}
+                      {column.id !== "hidden" ? <button type="button" className="secondary compact-button" onClick={() => onMove(categoryId, "hidden")}>Ausblenden</button> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="empty">Keine Boxen.</div>
+            )}
+          </section>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1361,7 +1434,7 @@ function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { lab
     try {
       const payload = await fileToUploadPayload(file);
       const uploaded = await postJson<{ url: string }>("/api/uploads/images", payload);
-      insertAtCursor(`![](${uploaded.url})`);
+      insertAtCursor(`![](${uploaded.url}) {mitte 100%}`);
       await onUpload?.();
       setUploadStatus(`${file.name} eingefügt.`);
     } catch (error) {
@@ -1382,7 +1455,7 @@ function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { lab
     replaceSelection(`${current.slice(0, start)}${insertion}${current.slice(end)}`, start + insertion.length, start + insertion.length);
   }
 
-  function setImageAlignment(align: "links" | "mitte" | "rechts") {
+  function updateImageLine(update: { align?: MarkdownImageAlign; width?: string }) {
     const textarea = textareaRef.current;
     const current = textarea?.value ?? value;
     const cursor = textarea?.selectionStart ?? current.length;
@@ -1390,12 +1463,13 @@ function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { lab
     const nextBreak = current.indexOf("\n", cursor);
     const lineEnd = nextBreak === -1 ? current.length : nextBreak;
     const line = current.slice(lineStart, lineEnd);
-    const image = line.match(/^(\s*!\[[^\]]*\]\([^)]+\))(?:\s*\{(?:links|mitte|rechts|left|center|right)\})?(\s*)$/);
+    const image = line.match(/^(\s*!\[[^\]]*\]\([^)]+\))(?:\s*\{([^}]*)\})?(\s*)$/);
     if (!image) {
-      insertAtCursor(`![](/uploads/bild.png) {${align}}`);
+      insertAtCursor(`![](/uploads/bild.png) ${formatMarkdownImageAttributes({ align: update.align || "center", width: update.width })}`);
       return;
     }
-    const replacement = `${image[1]} {${align}}${image[2] || ""}`;
+    const attributes = parseMarkdownImageAttributes(image[2]);
+    const replacement = `${image[1]}${formatMarkdownImageAttributes({ ...attributes, ...update })}${image[3] || ""}`;
     replaceSelection(`${current.slice(0, lineStart)}${replacement}${current.slice(lineEnd)}`, lineStart + replacement.length, lineStart + replacement.length);
   }
 
@@ -1412,9 +1486,13 @@ function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { lab
         <button type="button" className="secondary compact-button" title="Code" onClick={() => wrapSelection("`", "`", "code")}>{"<>"}</button>
         <button type="button" className="secondary compact-button" title="Link" onClick={insertLink}>Link</button>
         <button type="button" className="secondary compact-button" title="Bild ohne Bildunterschrift hochladen" onClick={() => fileInputRef.current?.click()}>Bild</button>
-        <button type="button" className="secondary compact-button" title="Bild links ausrichten" onClick={() => setImageAlignment("links")}>← Bild</button>
-        <button type="button" className="secondary compact-button" title="Bild mittig ausrichten" onClick={() => setImageAlignment("mitte")}>↔ Bild</button>
-        <button type="button" className="secondary compact-button" title="Bild rechts ausrichten" onClick={() => setImageAlignment("rechts")}>Bild →</button>
+        <button type="button" className="secondary compact-button" title="Bild links ausrichten" onClick={() => updateImageLine({ align: "left" })}>← Bild</button>
+        <button type="button" className="secondary compact-button" title="Bild mittig ausrichten" onClick={() => updateImageLine({ align: "center" })}>↔ Bild</button>
+        <button type="button" className="secondary compact-button" title="Bild rechts ausrichten" onClick={() => updateImageLine({ align: "right" })}>Bild →</button>
+        <button type="button" className="secondary compact-button" title="Bild auf 25 Prozent Breite setzen" onClick={() => updateImageLine({ width: "25%" })}>25%</button>
+        <button type="button" className="secondary compact-button" title="Bild auf 50 Prozent Breite setzen" onClick={() => updateImageLine({ width: "50%" })}>50%</button>
+        <button type="button" className="secondary compact-button" title="Bild auf 75 Prozent Breite setzen" onClick={() => updateImageLine({ width: "75%" })}>75%</button>
+        <button type="button" className="secondary compact-button" title="Bild auf volle Breite setzen" onClick={() => updateImageLine({ width: "100%" })}>100%</button>
       </div>
       <textarea ref={textareaRef} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(event) => {
@@ -1616,9 +1694,10 @@ type MarkdownBlock =
   | { type: "heading"; level: 2 | 3 | 4; text: string }
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] }
-  | { type: "image"; alt: string; url: string; align: MarkdownImageAlign };
+  | { type: "image"; alt: string; url: string; align: MarkdownImageAlign; width?: string };
 
 type MarkdownImageAlign = "left" | "center" | "right";
+type MarkdownImageAttributes = { align: MarkdownImageAlign; width?: string };
 
 function MarkdownContent({ value }: { value: string }) {
   const blocks = parseMarkdown(value);
@@ -1633,9 +1712,7 @@ function MarkdownContent({ value }: { value: string }) {
         if (block.type === "list") {
           return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkdown text={item} /></li>)}</ul>;
         }
-        if (block.type === "image") {
-          return <MarkdownImage alt={block.alt} url={block.url} align={block.align} key={index} />;
-        }
+        if (block.type === "image") return <MarkdownImage alt={block.alt} url={block.url} align={block.align} width={block.width} key={index} />;
         return <p key={index}><InlineMarkdown text={block.text} /></p>;
       })}
     </div>
@@ -1646,11 +1723,12 @@ function InlineMarkdown({ text }: { text: string }) {
   return <>{renderInlineMarkdown(text)}</>;
 }
 
-function MarkdownImage({ alt, url, align = "center" }: { alt: string; url: string; align?: MarkdownImageAlign }) {
+function MarkdownImage({ alt, url, align = "center", width }: { alt: string; url: string; align?: MarkdownImageAlign; width?: string }) {
   const safeUrl = safeHttpUrl(url);
   if (!safeUrl) return <span className="muted">Bild-URL nicht erlaubt: {url}</span>;
+  const style = width ? ({ "--markdown-image-width": width } as React.CSSProperties) : undefined;
   return (
-    <figure className={`markdown-image align-${align}`}>
+    <figure className={`markdown-image align-${align}`} style={style}>
       <img src={safeUrl} alt={alt} loading="lazy" />
       {alt ? (
         <figcaption>
@@ -1702,11 +1780,12 @@ function parseMarkdown(value: string): MarkdownBlock[] {
       continue;
     }
 
-    const image = trimmed.match(/^!\[([^\]]*)\]\(([^)\s]+)\)(?:\s*\{(links|mitte|rechts|left|center|right)\})?$/i);
+    const image = trimmed.match(/^!\[([^\]]*)\]\(([^)\s]+)\)(?:\s*\{([^}]*)\})?$/i);
     if (image) {
       flushParagraph();
       flushList();
-      blocks.push({ type: "image", alt: image[1] || "", url: image[2] || "", align: normalizeImageAlign(image[3]) });
+      const attributes = parseMarkdownImageAttributes(image[3]);
+      blocks.push({ type: "image", alt: image[1] || "", url: image[2] || "", ...attributes });
       continue;
     }
 
@@ -1736,7 +1815,7 @@ function parseMarkdown(value: string): MarkdownBlock[] {
 
 function renderInlineMarkdown(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  const tokenPattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|!\[[^\]]*\]\([^\s)]+\)(?:\s*\{(?:links|mitte|rechts|left|center|right)\})?|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<)]+)/gi;
+  const tokenPattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|!\[[^\]]*\]\([^\s)]+\)(?:\s*\{[^}\n]+\})?|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<)]+)/gi;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -1752,8 +1831,8 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     } else if (token.startsWith("*")) {
       nodes.push(<em key={key}>{renderInlineMarkdown(token.slice(1, -1))}</em>);
     } else if (token.startsWith("![")) {
-      const image = token.match(/^!\[([^\]]*)\]\(([^)]+)\)(?:\s*\{(links|mitte|rechts|left|center|right)\})?$/i);
-      if (image) nodes.push(<MarkdownImage key={key} alt={image[1] || ""} url={image[2] || ""} align={normalizeImageAlign(image[3])} />);
+      const image = token.match(/^!\[([^\]]*)\]\(([^)]+)\)(?:\s*\{([^}]*)\})?$/i);
+      if (image) nodes.push(<MarkdownImage key={key} alt={image[1] || ""} url={image[2] || ""} {...parseMarkdownImageAttributes(image[3])} />);
     } else {
       const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       const label = link ? link[1]! : token;
@@ -1790,6 +1869,51 @@ function normalizeImageAlign(value: string | undefined): MarkdownImageAlign {
   if (normalized === "links" || normalized === "left") return "left";
   if (normalized === "rechts" || normalized === "right") return "right";
   return "center";
+}
+
+function parseMarkdownImageAttributes(value: string | undefined): MarkdownImageAttributes {
+  const attributes: MarkdownImageAttributes = { align: "center" };
+  value?.split(/[\s,]+/).forEach((rawToken) => {
+    const token = rawToken.trim();
+    if (!token) return;
+    const normalized = token.toLocaleLowerCase("de-DE");
+    if (["links", "left", "mitte", "center", "rechts", "right"].includes(normalized)) {
+      attributes.align = normalizeImageAlign(token);
+      return;
+    }
+    const size = normalizeImageSize(token.replace(/^(?:breite|größe|groesse|size|width)=/i, ""));
+    if (size) attributes.width = size;
+  });
+  return attributes;
+}
+
+function normalizeImageSize(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLocaleLowerCase("de-DE");
+  if (!normalized) return undefined;
+  if (normalized === "klein" || normalized === "small") return "25%";
+  if (normalized === "mittel" || normalized === "medium") return "50%";
+  if (normalized === "gross" || normalized === "groß" || normalized === "large") return "75%";
+  if (normalized === "voll" || normalized === "full") return "100%";
+
+  const percent = normalized.match(/^(\d{1,3})%$/);
+  if (percent) return `${Math.min(100, Math.max(5, Number(percent[1]!)))}%`;
+
+  const pixels = normalized.match(/^(\d{2,4})px$/);
+  if (pixels) return `${Math.min(1200, Math.max(80, Number(pixels[1]!)))}px`;
+
+  return undefined;
+}
+
+function formatMarkdownImageAttributes(attributes: MarkdownImageAttributes): string {
+  const tokens = [markdownImageAlignToken(attributes.align)];
+  if (attributes.width) tokens.push(attributes.width);
+  return `{${tokens.join(" ")}}`;
+}
+
+function markdownImageAlignToken(align: MarkdownImageAlign): string {
+  if (align === "left") return "links";
+  if (align === "right") return "rechts";
+  return "mitte";
 }
 
 function safeHttpUrl(value: string): string | null {
@@ -2049,12 +2173,31 @@ function inferGenreFromTags(tags: string[]): string {
   return tags.filter((tag) => !supportPattern.test(tag)).slice(0, 3).join(", ");
 }
 
-function getOnboardingItems(onboarding: OnboardingSettings): Array<{ title: string; value: string }> {
+function getOnboardingItems(onboarding: OnboardingSettings): Array<{ id: string; title: string; value: string }> {
   return getOrderedOnboardingCategoryEntries(onboarding)
     .map((category) => category.type === "default"
-      ? { title: category.title, value: onboarding[category.key] }
-      : { title: category.section.title, value: category.section.content })
+      ? { id: category.id, title: category.title, value: onboarding[category.key] }
+      : { id: category.id, title: category.section.title, value: category.section.content })
     .filter((item) => item.title.trim().length > 0 && item.value.trim().length > 0);
+}
+
+function getTvOnboardingColumns(onboarding: OnboardingSettings): { left: Array<{ id: string; title: string; value: string }>; right: Array<{ id: string; title: string; value: string }> } {
+  const itemsById = new Map(getOrderedOnboardingCategoryEntries(onboarding).map((category) => {
+    const item = category.type === "default"
+      ? { id: category.id, title: category.title, value: onboarding[category.key] }
+      : { id: category.id, title: category.section.title, value: category.section.content };
+    return [category.id, item];
+  }));
+  const layout = getOnboardingTvLayout(onboarding);
+  const visibleItem = (id: string) => {
+    const item = itemsById.get(id);
+    return item && item.title.trim() && item.value.trim() ? item : null;
+  };
+
+  return {
+    left: layout.left.map(visibleItem).filter(Boolean) as Array<{ id: string; title: string; value: string }>,
+    right: layout.right.map(visibleItem).filter(Boolean) as Array<{ id: string; title: string; value: string }>
+  };
 }
 
 type OrderedOnboardingCategory =
@@ -2090,6 +2233,62 @@ function getOnboardingCategoryOrder(onboarding: Pick<OnboardingSettings, "sectio
     if (!ordered.includes(id)) ordered.push(id);
   }
   return ordered;
+}
+
+function getOnboardingTvLayout(onboarding: Pick<OnboardingSettings, "sections" | "categoryOrder" | "tvLayout">): OnboardingTvLayout {
+  const order = getOnboardingCategoryOrder(onboarding);
+  const allowed = new Set(order);
+  const used = new Set<string>();
+  const source = onboarding.tvLayout || { left: [], right: [], hidden: [] };
+
+  function normalizeColumn(items: string[] | undefined): string[] {
+    const column: string[] = [];
+    for (const item of items || []) {
+      if (!allowed.has(item) || used.has(item)) continue;
+      used.add(item);
+      column.push(item);
+    }
+    return column;
+  }
+
+  const left = normalizeColumn(source.left);
+  const right = normalizeColumn(source.right);
+  const hidden = normalizeColumn(source.hidden);
+  for (const id of order) {
+    if (used.has(id)) continue;
+    if (left.length <= right.length) left.push(id);
+    else right.push(id);
+    used.add(id);
+  }
+  return { left, right, hidden };
+}
+
+function removeTvLayoutItem(layout: OnboardingTvLayout, id: string): OnboardingTvLayout {
+  return {
+    left: layout.left.filter((item) => item !== id),
+    right: layout.right.filter((item) => item !== id),
+    hidden: layout.hidden.filter((item) => item !== id)
+  };
+}
+
+function addTvLayoutItem(layout: OnboardingTvLayout, id: string, target: TvLayoutColumn): OnboardingTvLayout {
+  const next = removeTvLayoutItem(layout, id);
+  return { ...next, [target]: [...next[target], id] };
+}
+
+function moveTvLayoutItem(layout: OnboardingTvLayout, id: string, target: TvLayoutColumn): OnboardingTvLayout {
+  return addTvLayoutItem(layout, id, target);
+}
+
+function reorderTvLayoutItem(layout: OnboardingTvLayout, column: TvLayoutColumn, id: string, direction: -1 | 1): OnboardingTvLayout {
+  const next = { left: [...layout.left], right: [...layout.right], hidden: [...layout.hidden] };
+  const index = next[column].indexOf(id);
+  const nextIndex = index + direction;
+  if (index < 0 || nextIndex < 0 || nextIndex >= next[column].length) return layout;
+  const [item] = next[column].splice(index, 1);
+  if (!item) return layout;
+  next[column].splice(nextIndex, 0, item);
+  return next;
 }
 
 function matchesGroupSize(game: PoolGame, groupSize: number): boolean {
@@ -2195,8 +2394,8 @@ function removeImageFromOnboarding(settings: OnboardingSettings, imageUrl: strin
 function removeImageMarkdown(value: string, imageUrl: string): string {
   const escapedUrl = escapeRegExp(imageUrl);
   return value
-    .replace(new RegExp(`(^|\\n)\\s*!\\[[^\\]]*\\]\\(${escapedUrl}\\)\\s*(?=\\n|$)`, "g"), "$1")
-    .replace(new RegExp(`\\s*!\\[[^\\]]*\\]\\(${escapedUrl}\\)`, "g"), "")
+    .replace(new RegExp(`(^|\\n)\\s*!\\[[^\\]]*\\]\\(${escapedUrl}\\)(?:\\s*\\{[^}]*\\})?\\s*(?=\\n|$)`, "g"), "$1")
+    .replace(new RegExp(`\\s*!\\[[^\\]]*\\]\\(${escapedUrl}\\)(?:\\s*\\{[^}]*\\})?`, "g"), "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -2210,7 +2409,8 @@ function onboardingSettingsChanged(left: OnboardingSettings, right: OnboardingSe
     || left.scheduleInfo !== right.scheduleInfo
     || left.helpInfo !== right.helpInfo
     || JSON.stringify(left.sections) !== JSON.stringify(right.sections)
-    || JSON.stringify(left.categoryOrder) !== JSON.stringify(right.categoryOrder);
+    || JSON.stringify(left.categoryOrder) !== JSON.stringify(right.categoryOrder)
+    || JSON.stringify(left.tvLayout) !== JSON.stringify(right.tvLayout);
 }
 
 function escapeRegExp(value: string): string {

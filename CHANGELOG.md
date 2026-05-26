@@ -11,6 +11,15 @@ Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 - Onboarding-Datenmodell speichert zusätzliche Kategorien migrationsfreundlich als JSON neben den bestehenden Standardfeldern.
 - Reihenfolge aller Onboarding-Kategorien ist frei editierbar, inklusive der Standardkategorien.
 - Markdown-Bilder in Onboarding-Texten können links, mittig oder rechts ausgerichtet werden.
+- Markdown-Bilder in Onboarding-Texten können per Toolbar auf 25%, 50%, 75% oder 100% Breite gesetzt werden.
+- TV-Seite kann Onboarding-Kategorien als verschiebbare Boxen in linker und rechter TV-Spalte darstellen.
+
+### Behoben
+
+- Ranking-Buttons zeigen nach Auswahl von drei Spielen kein falsches „Als Rang 4 wählen“ mehr, sondern deaktivieren weitere Optionen korrekt.
+- Onboarding-Bildgrößen werden in Start- und TV-Ansicht einheitlich über die Markdown-Bildattribute dargestellt.
+- `docker-compose.yml` enthält keine private Beispiel-Domain mehr; `LAN_VOTE_PUBLIC_URL` ist jetzt ein Pflichtwert aus `.env`.
+- `qrcode` ist als Produktionsabhängigkeit deklariert.
 
 ## 2026-05-25
 

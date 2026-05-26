@@ -114,12 +114,19 @@ export type OnboardingSettings = {
   helpInfo: string;
   sections: OnboardingSection[];
   categoryOrder: string[];
+  tvLayout: OnboardingTvLayout;
 };
 
 export type OnboardingSection = {
   id: string;
   title: string;
   content: string;
+};
+
+export type OnboardingTvLayout = {
+  left: string[];
+  right: string[];
+  hidden: string[];
 };
 
 export type AppSettings = {

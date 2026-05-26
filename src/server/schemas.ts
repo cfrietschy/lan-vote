@@ -74,6 +74,12 @@ const onboardingSectionSchema = z.object({
   content: z.string().trim().max(4000).default("")
 });
 
+const onboardingTvLayoutSchema = z.object({
+  left: z.array(z.string().trim().min(1).max(80)).max(25).optional().default([]),
+  right: z.array(z.string().trim().min(1).max(80)).max(25).optional().default([]),
+  hidden: z.array(z.string().trim().min(1).max(80)).max(25).optional().default([])
+});
+
 export const onboardingSchema = z.object({
   enabled: z.boolean().default(false),
   title: z.string().trim().min(1).max(80).default("LAN-Startseite"),
@@ -83,7 +89,8 @@ export const onboardingSchema = z.object({
   scheduleInfo: z.string().trim().max(4000).default(""),
   helpInfo: z.string().trim().max(4000).default(""),
   sections: z.array(onboardingSectionSchema).max(20).optional().default([]),
-  categoryOrder: z.array(z.string().trim().min(1).max(80)).max(25).optional().default([])
+  categoryOrder: z.array(z.string().trim().min(1).max(80)).max(25).optional().default([]),
+  tvLayout: onboardingTvLayoutSchema.optional().default({ left: [], right: [], hidden: [] })
 });
 
 export const uploadImageSchema = z.object({

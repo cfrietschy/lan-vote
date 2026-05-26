@@ -16,6 +16,7 @@
   "dependencies": {
     "better-sqlite3": "^12.10.0",
     "express": "^5.1.0",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.8.1",
     "zod": "^4.4.0"
   },
@@ -28,7 +29,6 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "concurrently": "^9.1.2",
-    "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "socket.io-client": "^4.8.1",

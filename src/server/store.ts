@@ -6,6 +6,7 @@ import type {
   GameOption,
   HistoryEntry,
   OnboardingSection,
+  OnboardingTvLayout,
   OnboardingSettings,
   PollResults,
   PollTemplate,
@@ -85,6 +86,7 @@ type OnboardingRow = {
   help_info: string;
   sections_json: string;
   category_order_json: string;
+  tv_layout_json: string;
 };
 
 type AppSettingsRow = {
@@ -441,13 +443,14 @@ export class Store {
       scheduleInfo: settings.scheduleInfo.trim().slice(0, 4000),
       helpInfo: settings.helpInfo.trim().slice(0, 4000),
       sections,
-      categoryOrder: normalizeOnboardingCategoryOrder(settings.categoryOrder || [], sections)
+      categoryOrder: normalizeOnboardingCategoryOrder(settings.categoryOrder || [], sections),
+      tvLayout: normalizeOnboardingTvLayout(settings.tvLayout, settings.categoryOrder || [], sections)
     };
     this.db
       .prepare(
         `INSERT INTO onboarding_settings
-           (id, enabled, title, wlan_info, voice_info, food_info, schedule_info, help_info, sections_json, category_order_json, updated_at)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, enabled, title, wlan_info, voice_info, food_info, schedule_info, help_info, sections_json, category_order_json, tv_layout_json, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            enabled = excluded.enabled,
            title = excluded.title,
@@ -458,6 +461,7 @@ export class Store {
            help_info = excluded.help_info,
            sections_json = excluded.sections_json,
            category_order_json = excluded.category_order_json,
+           tv_layout_json = excluded.tv_layout_json,
            updated_at = excluded.updated_at`
       )
       .run(
@@ -470,6 +474,7 @@ export class Store {
         normalized.helpInfo,
         JSON.stringify(normalized.sections),
         JSON.stringify(normalized.categoryOrder),
+        JSON.stringify(normalized.tvLayout),
         now()
       );
     return this.getOnboardingSettings();
@@ -691,6 +696,7 @@ function mapTemplate(row: TemplateRow): PollTemplate {
 
 function mapOnboarding(row: OnboardingRow | undefined): OnboardingSettings {
   const sections = parseOnboardingSections(row?.sections_json || "[]");
+  const categoryOrder = parseOnboardingCategoryOrder(row?.category_order_json || "[]", sections);
   return {
     enabled: Boolean(row?.enabled),
     title: row?.title || "LAN-Startseite",
@@ -700,7 +706,8 @@ function mapOnboarding(row: OnboardingRow | undefined): OnboardingSettings {
     scheduleInfo: row?.schedule_info || "",
     helpInfo: row?.help_info || "",
     sections,
-    categoryOrder: parseOnboardingCategoryOrder(row?.category_order_json || "[]", sections)
+    categoryOrder,
+    tvLayout: parseOnboardingTvLayout(row?.tv_layout_json || "{}", categoryOrder, sections)
   };
 }
 
@@ -745,6 +752,44 @@ function normalizeOnboardingCategoryOrder(order: string[], sections: OnboardingS
     if (!normalized.includes(id)) normalized.push(id);
   }
   return normalized.slice(0, 25);
+}
+
+function parseOnboardingTvLayout(value: string, categoryOrder: string[], sections: OnboardingSection[]): OnboardingTvLayout {
+  try {
+    const parsed = JSON.parse(value);
+    return normalizeOnboardingTvLayout(parsed, categoryOrder, sections);
+  } catch {
+    return normalizeOnboardingTvLayout(undefined, categoryOrder, sections);
+  }
+}
+
+function normalizeOnboardingTvLayout(layout: Partial<OnboardingTvLayout> | undefined, categoryOrder: string[], sections: OnboardingSection[]): OnboardingTvLayout {
+  const order = normalizeOnboardingCategoryOrder(categoryOrder, sections);
+  const allowed = new Set(order);
+  const used = new Set<string>();
+
+  const normalizeColumn = (items: string[] | undefined): string[] => {
+    const column: string[] = [];
+    for (const item of items || []) {
+      const id = item.trim();
+      if (!allowed.has(id) || used.has(id)) continue;
+      used.add(id);
+      column.push(id);
+    }
+    return column;
+  };
+
+  const left = normalizeColumn(layout?.left);
+  const right = normalizeColumn(layout?.right);
+  const hidden = normalizeColumn(layout?.hidden);
+
+  const remaining = order.filter((id) => !used.has(id));
+  remaining.forEach((id) => {
+    if (left.length <= right.length) left.push(id);
+    else right.push(id);
+  });
+
+  return { left, right, hidden };
 }
 
 function normalizeGame(game: GameInput): GameDraftSnapshot {

@@ -231,6 +231,8 @@ html[data-theme="light"] .draft-row,
 html[data-theme="light"] .template-row,
 html[data-theme="light"] .upload-row,
 html[data-theme="light"] .onboarding-category-row,
+html[data-theme="light"] .tv-layout-column,
+html[data-theme="light"] .tv-layout-row,
 html[data-theme="light"] .custom-section-row,
 html[data-theme="light"] .steam-result-card,
 html[data-theme="light"] .top-game-card,
@@ -247,6 +249,7 @@ html[data-theme="light"] .pool-editor,
 html[data-theme="light"] .pool-filters,
 html[data-theme="light"] .upload-manager,
 html[data-theme="light"] .onboarding-category-manager,
+html[data-theme="light"] .tv-layout-manager,
 html[data-theme="light"] .custom-onboarding-sections,
 html[data-theme="light"] .markdown-toolbar,
 html[data-theme="light"] .markdown-content code,
@@ -875,7 +878,7 @@ textarea:focus {
 }
 
 .markdown-image img {
-  width: auto;
+  width: var(--markdown-image-width, auto);
   max-width: 100%;
   max-height: 360px;
   object-fit: contain;
@@ -1090,6 +1093,7 @@ textarea:focus {
 }
 
 .onboarding-category-manager,
+.tv-layout-manager,
 .custom-onboarding-sections {
   display: grid;
   gap: 10px;
@@ -1126,6 +1130,46 @@ textarea:focus {
 }
 
 .category-row-header strong {
+  overflow-wrap: anywhere;
+}
+
+.tv-layout-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tv-layout-column {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.tv-layout-column h4 {
+  margin: 0;
+}
+
+.tv-layout-list {
+  display: grid;
+  gap: 8px;
+}
+
+.tv-layout-row {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #18242a;
+}
+
+.tv-layout-row strong {
   overflow-wrap: anywhere;
 }
 
@@ -1523,11 +1567,27 @@ html[data-theme="light"] .admin-tabs button:focus-visible {
   gap: 10px;
 }
 
+.tv-info-box-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tv-info-column {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
 .tv-info-item {
   display: grid;
   gap: 6px;
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
 }
 
 .tv-info-item h3 {
@@ -1550,9 +1610,14 @@ html[data-theme="light"] .admin-tabs button:focus-visible {
   gap: 7px;
 }
 
+.tv-onboarding.compact .tv-info-box-grid,
+.tv-onboarding.compact .tv-info-column {
+  gap: 7px;
+}
+
 .tv-onboarding.compact .tv-info-item {
   gap: 4px;
-  padding-top: 7px;
+  padding: 7px;
 }
 
 .tv-onboarding.compact .tv-info-item h3 {
@@ -1684,6 +1749,8 @@ html[data-theme="light"] .admin-tabs button:focus-visible {
 
   .compact-grid.three,
   .pool-filters,
+  .tv-layout-columns,
+  .tv-info-box-grid,
   .template-save {
     grid-template-columns: 1fr;
   }

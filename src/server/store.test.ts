@@ -163,13 +163,16 @@ describe("Store", () => {
       scheduleInfo: "Warmup, Turnier, Freispiel",
       helpInfo: "Orga fragen",
       sections: [{ id: "rules", title: "Turnierregeln", content: "Best of 3" }],
-      categoryOrder: ["rules", "wlan", "voice", "food", "schedule", "help"]
+      categoryOrder: ["rules", "wlan", "voice", "food", "schedule", "help"],
+      tvLayout: { left: ["rules", "wlan"], right: ["voice", "food"], hidden: ["schedule", "help"] }
     });
     const state = store.getPublicState();
 
     expect(onboarding.enabled).toBe(true);
     expect(onboarding.sections).toEqual([{ id: "rules", title: "Turnierregeln", content: "Best of 3" }]);
     expect(onboarding.categoryOrder[0]).toBe("rules");
+    expect(onboarding.tvLayout.left).toEqual(["rules", "wlan"]);
+    expect(onboarding.tvLayout.hidden).toContain("schedule");
     expect(state.server.qrUrl).toBe("http://127.0.0.1:8080/start");
     expect(state.onboarding.title).toBe("LAN-Infos");
     expect(state.onboarding.sections).toHaveLength(1);

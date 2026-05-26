@@ -35,10 +35,10 @@ Hinweis: Diese Software ist komplett gevibecoded.
 
 ## Docker-Start
 
-In `docker-compose.yml` zuerst `LAN_VOTE_PUBLIC_URL` auf die LAN-IP oder den DNS-Namen des Docker-Hosts setzen:
+In `.env` muss `LAN_VOTE_PUBLIC_URL` auf die LAN-IP oder den DNS-Namen des Docker-Hosts gesetzt werden. Diese URL landet im QR-Code:
 
-```yaml
-LAN_VOTE_PUBLIC_URL: "http://192.168.1.10:8080"
+```dotenv
+LAN_VOTE_PUBLIC_URL=http://192.168.1.10:8080
 ```
 
 Für den Adminbereich muss ein Passwort in `.env` gesetzt werden:
