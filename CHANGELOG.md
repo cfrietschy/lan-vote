@@ -15,6 +15,7 @@ Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 - TV-Seite kann Onboarding-Kategorien als verschiebbare Boxen in linker und rechter TV-Spalte darstellen.
 - Onboarding-Bilder können in einer Markdown-Zeile nebeneinander dargestellt und bis 200% bzw. 2400px skaliert werden.
 - Admins können zeitlich begrenzte Info-Meldungen veröffentlichen, die auf der TV-Seite sichtbar sind und bei Besuchern als Popup erscheinen.
+- Admin-Meldungen akzeptieren Ablaufzeiten im deutschen Format, z.B. `26.05.2026 18:30`.
 
 ### Behoben
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import QRCode from "qrcode";
 import { io } from "socket.io-client";
+import { defaultNoticeExpiry, formatGermanDateTimeInput, parseGermanDateTimeInput } from "../shared/datetime";
 import type { AdminNotice, AppSettings, GameDraftSnapshot, OnboardingSection, OnboardingSettings, OnboardingTvLayout, PollTemplate, PoolGame, PublicState, ResultOption, SteamGameDetails } from "../shared/types";
 import "./styles.css";
 
@@ -1635,21 +1636,26 @@ function UploadedImageManager({
 function AdminNoticeManager({ current, onState }: { current: AdminNotice | null; onState: (state: PublicState) => void }) {
   const [title, setTitle] = useState(current?.title || "");
   const [message, setMessage] = useState(current?.message || "");
-  const [expiresAt, setExpiresAt] = useState(toDateTimeLocalValue(current?.expiresAt || defaultNoticeExpiry()));
+  const [expiresAt, setExpiresAt] = useState(formatGermanDateTimeInput(current?.expiresAt || defaultNoticeExpiry()));
   const [status, setStatus] = useState("");
 
   useEffect(() => {
     setTitle(current?.title || "");
     setMessage(current?.message || "");
-    setExpiresAt(toDateTimeLocalValue(current?.expiresAt || defaultNoticeExpiry()));
+    setExpiresAt(formatGermanDateTimeInput(current?.expiresAt || defaultNoticeExpiry()));
   }, [current?.id]);
 
   async function publish() {
     try {
+      const parsedExpiresAt = parseGermanDateTimeInput(expiresAt);
+      if (!parsedExpiresAt) {
+        setStatus("Bitte Datum und Uhrzeit im Format TT.MM.JJJJ HH:mm eingeben.");
+        return;
+      }
       const notice = await postJson<AdminNotice>("/api/admin-notice", {
         title,
         message,
-        expiresAt: new Date(expiresAt).toISOString()
+        expiresAt: parsedExpiresAt.toISOString()
       });
       setStatus(`Meldung "${notice.title}" veröffentlicht.`);
       onState(await fetchState());
@@ -1664,7 +1670,7 @@ function AdminNoticeManager({ current, onState }: { current: AdminNotice | null;
       setStatus("Meldung entfernt.");
       setTitle("");
       setMessage("");
-      setExpiresAt(toDateTimeLocalValue(defaultNoticeExpiry()));
+      setExpiresAt(formatGermanDateTimeInput(defaultNoticeExpiry()));
       onState(await fetchState());
     } catch (error) {
       setStatus((error as Error).message);
@@ -1676,7 +1682,7 @@ function AdminNoticeManager({ current, onState }: { current: AdminNotice | null;
       {current ? <AdminNoticeBanner notice={current} /> : <div className="empty">Aktuell ist keine Admin-Meldung aktiv.</div>}
       <div className="compact-grid">
         <label>Titel<input maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="z.B. Pizza ist da" /></label>
-        <label>Sichtbar bis<input type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></label>
+        <label>Sichtbar bis<input value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} placeholder="26.05.2026 18:30" /></label>
       </div>
       <label>Nachricht<textarea maxLength={800} value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Kurze Info für TV und Besucher" /></label>
       <div className="actions">
@@ -2565,17 +2571,6 @@ function hasSeenAdminNotice(id: string): boolean {
 
 function markAdminNoticeSeen(id: string): void {
   localStorage.setItem("lanVoteSeenAdminNoticeId", id);
-}
-
-function defaultNoticeExpiry(): string {
-  return new Date(Date.now() + 60 * 60_000).toISOString();
-}
-
-function toDateTimeLocalValue(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "";
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
 }
 
 function removeImageFromOnboarding(settings: OnboardingSettings, imageUrl: string): OnboardingSettings {
