@@ -68,6 +68,12 @@ export const poolGameSchema = z.object({
   tags: tagsSchema
 });
 
+const onboardingSectionSchema = z.object({
+  id: z.string().trim().max(80).optional().default(""),
+  title: z.string().trim().min(1).max(60),
+  content: z.string().trim().max(4000).default("")
+});
+
 export const onboardingSchema = z.object({
   enabled: z.boolean().default(false),
   title: z.string().trim().min(1).max(80).default("LAN-Startseite"),
@@ -75,7 +81,9 @@ export const onboardingSchema = z.object({
   voiceInfo: z.string().trim().max(4000).default(""),
   foodInfo: z.string().trim().max(4000).default(""),
   scheduleInfo: z.string().trim().max(4000).default(""),
-  helpInfo: z.string().trim().max(4000).default("")
+  helpInfo: z.string().trim().max(4000).default(""),
+  sections: z.array(onboardingSectionSchema).max(20).optional().default([]),
+  categoryOrder: z.array(z.string().trim().min(1).max(80)).max(25).optional().default([])
 });
 
 export const uploadImageSchema = z.object({

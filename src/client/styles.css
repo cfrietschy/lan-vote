@@ -230,6 +230,8 @@ html[data-theme="light"] .pool-row,
 html[data-theme="light"] .draft-row,
 html[data-theme="light"] .template-row,
 html[data-theme="light"] .upload-row,
+html[data-theme="light"] .onboarding-category-row,
+html[data-theme="light"] .custom-section-row,
 html[data-theme="light"] .steam-result-card,
 html[data-theme="light"] .top-game-card,
 html[data-theme="light"] .empty,
@@ -244,6 +246,8 @@ html[data-theme="light"] .preset-card {
 html[data-theme="light"] .pool-editor,
 html[data-theme="light"] .pool-filters,
 html[data-theme="light"] .upload-manager,
+html[data-theme="light"] .onboarding-category-manager,
+html[data-theme="light"] .custom-onboarding-sections,
 html[data-theme="light"] .markdown-toolbar,
 html[data-theme="light"] .markdown-content code,
 html[data-theme="light"] .markdown-image img {
@@ -859,10 +863,20 @@ textarea:focus {
 .markdown-image {
   display: grid;
   gap: 8px;
+  justify-items: center;
+}
+
+.markdown-image.align-left {
+  justify-items: start;
+}
+
+.markdown-image.align-right {
+  justify-items: end;
 }
 
 .markdown-image img {
-  width: 100%;
+  width: auto;
+  max-width: 100%;
   max-height: 360px;
   object-fit: contain;
   border: 1px solid var(--line);
@@ -1072,6 +1086,46 @@ textarea:focus {
 }
 
 .upload-row strong {
+  overflow-wrap: anywhere;
+}
+
+.onboarding-category-manager,
+.custom-onboarding-sections {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #141b22;
+  padding: 12px;
+}
+
+.onboarding-category-list,
+.custom-section-list {
+  display: grid;
+  gap: 10px;
+}
+
+.onboarding-category-row,
+.custom-section-row {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.category-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.category-row-header strong {
   overflow-wrap: anywhere;
 }
 
@@ -1637,7 +1691,8 @@ html[data-theme="light"] .admin-tabs button:focus-visible {
   .pool-row,
   .draft-row,
   .template-row,
-  .upload-row {
+  .upload-row,
+  .onboarding-category-row {
     grid-template-columns: 1fr;
   }
 

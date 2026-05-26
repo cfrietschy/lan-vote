@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import QRCode from "qrcode";
 import { io } from "socket.io-client";
-import type { AppSettings, GameDraftSnapshot, OnboardingSettings, PollTemplate, PoolGame, PublicState, ResultOption, SteamGameDetails } from "../shared/types";
+import type { AppSettings, GameDraftSnapshot, OnboardingSection, OnboardingSettings, PollTemplate, PoolGame, PublicState, ResultOption, SteamGameDetails } from "../shared/types";
 import "./styles.css";
 
 type GameDraft = {
@@ -79,6 +79,15 @@ type UploadedImagesResponse = {
 type AdminTab = "poll" | "templates" | "add-games" | "pool" | "active" | "onboarding" | "history" | "settings";
 type PoolPlayerFilter = "all" | "2-4" | "5-8" | "9-16" | "17+";
 type PoolSourceFilter = "all" | "steam" | "manual";
+type DefaultOnboardingKey = "wlanInfo" | "voiceInfo" | "foodInfo" | "scheduleInfo" | "helpInfo";
+
+const defaultOnboardingCategories: Array<{ id: string; title: string; key: DefaultOnboardingKey; placeholder: string }> = [
+  { id: "wlan", title: "WLAN / LAN", key: "wlanInfo", placeholder: "- SSID: LAN\n- Passwort: ...\n![](/uploads/...)" },
+  { id: "voice", title: "Discord / Voice", key: "voiceInfo", placeholder: "[Discord öffnen](https://discord.gg/...)" },
+  { id: "food", title: "Essen", key: "foodInfo", placeholder: "## Essen\n- Pizza 19:00\n- Getränke im Kühlschrank" },
+  { id: "schedule", title: "Ablauf", key: "scheduleInfo", placeholder: "## Ablauf\n- 18:00 Warmup\n- 20:00 Turnier" },
+  { id: "help", title: "Hilfe", key: "helpInfo", placeholder: "Bei Problemen: **Orga fragen**" }
+];
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: "add-games", label: "Spiele hinzufügen" },
@@ -1223,6 +1232,46 @@ function OnboardingAdmin({ initial }: { initial: OnboardingSettings }) {
     }
   }
 
+  function addSection() {
+    const id = createClientId();
+    setSettings({
+      ...settings,
+      sections: [...settings.sections, { id, title: "Neue Kategorie", content: "" }],
+      categoryOrder: [...getOnboardingCategoryOrder(settings), id]
+    });
+  }
+
+  function updateSection(id: string, patch: Partial<OnboardingSection>) {
+    setSettings({
+      ...settings,
+      sections: settings.sections.map((section) => section.id === id ? { ...section, ...patch } : section)
+    });
+  }
+
+  function removeSection(id: string) {
+    const section = settings.sections.find((item) => item.id === id);
+    if (section && !window.confirm(`Kategorie "${section.title || "Ohne Titel"}" löschen?`)) return;
+    setSettings({
+      ...settings,
+      sections: settings.sections.filter((item) => item.id !== id),
+      categoryOrder: getOnboardingCategoryOrder(settings).filter((item) => item !== id)
+    });
+  }
+
+  function moveCategory(id: string, direction: -1 | 1) {
+    const order = getOnboardingCategoryOrder(settings);
+    const index = order.indexOf(id);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+    const next = [...order];
+    const [item] = next.splice(index, 1);
+    if (!item) return;
+    next.splice(nextIndex, 0, item);
+    setSettings({ ...settings, categoryOrder: next });
+  }
+
+  const categories = getOrderedOnboardingCategoryEntries(settings);
+
   return (
     <div className="field-grid">
       <label className="checkbox-row">
@@ -1230,11 +1279,34 @@ function OnboardingAdmin({ initial }: { initial: OnboardingSettings }) {
         <span>QR-Code zuerst auf LAN-Startseite führen.</span>
       </label>
       <label>Titel<input value={settings.title} onChange={(event) => setSettings({ ...settings, title: event.target.value })} /></label>
-      <MarkdownEditor label="WLAN / LAN" value={settings.wlanInfo} onChange={(wlanInfo) => setSettings({ ...settings, wlanInfo })} onUpload={loadUploadedImages} placeholder="- SSID: LAN&#10;- Passwort: ...&#10;![](/uploads/...)" />
-      <MarkdownEditor label="Discord / Voice" value={settings.voiceInfo} onChange={(voiceInfo) => setSettings({ ...settings, voiceInfo })} onUpload={loadUploadedImages} placeholder="[Discord öffnen](https://discord.gg/...)" />
-      <MarkdownEditor label="Essen" value={settings.foodInfo} onChange={(foodInfo) => setSettings({ ...settings, foodInfo })} onUpload={loadUploadedImages} placeholder="## Essen&#10;- Pizza 19:00&#10;- Getränke im Kühlschrank" />
-      <MarkdownEditor label="Ablauf" value={settings.scheduleInfo} onChange={(scheduleInfo) => setSettings({ ...settings, scheduleInfo })} onUpload={loadUploadedImages} placeholder="## Ablauf&#10;- 18:00 Warmup&#10;- 20:00 Turnier" />
-      <MarkdownEditor label="Hilfe" value={settings.helpInfo} onChange={(helpInfo) => setSettings({ ...settings, helpInfo })} onUpload={loadUploadedImages} placeholder="Bei Problemen: **Orga fragen**" />
+      <section className="onboarding-category-manager">
+        <div className="section-title">
+          <h3>Kategorien</h3>
+          <button type="button" className="secondary compact-button" onClick={addSection}>Kategorie hinzufügen</button>
+        </div>
+        <div className="onboarding-category-list">
+          {categories.map((category, index) => (
+            <article className="onboarding-category-row" key={category.id}>
+              <div className="category-row-header">
+                <strong>{category.title}</strong>
+                <div className="actions">
+                  <button type="button" className="secondary compact-button" disabled={index === 0} onClick={() => moveCategory(category.id, -1)}>Nach oben</button>
+                  <button type="button" className="secondary compact-button" disabled={index === categories.length - 1} onClick={() => moveCategory(category.id, 1)}>Nach unten</button>
+                  {category.type === "custom" ? <button type="button" className="danger compact-button" onClick={() => removeSection(category.id)}>Löschen</button> : null}
+                </div>
+              </div>
+              {category.type === "default" ? (
+                <MarkdownEditor label={category.title} value={settings[category.key]} onChange={(value) => setSettings({ ...settings, [category.key]: value })} onUpload={loadUploadedImages} placeholder={category.placeholder} />
+              ) : (
+                <>
+                  <label>Kategorietitel<input value={category.section.title} onChange={(event) => updateSection(category.id, { title: event.target.value })} placeholder="z.B. Turnierregeln" /></label>
+                  <MarkdownEditor label="Inhalt" value={category.section.content} onChange={(content) => updateSection(category.id, { content })} onUpload={loadUploadedImages} placeholder="Markdown-Inhalt für diese Kategorie" />
+                </>
+              )}
+            </article>
+          ))}
+        </div>
+      </section>
       <UploadedImageManager images={uploadedImages} status={imageStatus} onRefresh={loadUploadedImages} onDelete={deleteUploadedImage} onDeleteOrphans={deleteOrphanedImages} />
       <div className="actions"><button type="button" className="secondary" onClick={save}>Onboarding speichern</button></div>
       {status ? <div className="status">{status}</div> : null}
@@ -1310,6 +1382,23 @@ function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { lab
     replaceSelection(`${current.slice(0, start)}${insertion}${current.slice(end)}`, start + insertion.length, start + insertion.length);
   }
 
+  function setImageAlignment(align: "links" | "mitte" | "rechts") {
+    const textarea = textareaRef.current;
+    const current = textarea?.value ?? value;
+    const cursor = textarea?.selectionStart ?? current.length;
+    const lineStart = current.lastIndexOf("\n", Math.max(0, cursor - 1)) + 1;
+    const nextBreak = current.indexOf("\n", cursor);
+    const lineEnd = nextBreak === -1 ? current.length : nextBreak;
+    const line = current.slice(lineStart, lineEnd);
+    const image = line.match(/^(\s*!\[[^\]]*\]\([^)]+\))(?:\s*\{(?:links|mitte|rechts|left|center|right)\})?(\s*)$/);
+    if (!image) {
+      insertAtCursor(`![](/uploads/bild.png) {${align}}`);
+      return;
+    }
+    const replacement = `${image[1]} {${align}}${image[2] || ""}`;
+    replaceSelection(`${current.slice(0, lineStart)}${replacement}${current.slice(lineEnd)}`, lineStart + replacement.length, lineStart + replacement.length);
+  }
+
   return (
     <div className="markdown-editor">
       <span className="editor-label">{label}</span>
@@ -1323,6 +1412,9 @@ function MarkdownEditor({ label, value, onChange, onUpload, placeholder }: { lab
         <button type="button" className="secondary compact-button" title="Code" onClick={() => wrapSelection("`", "`", "code")}>{"<>"}</button>
         <button type="button" className="secondary compact-button" title="Link" onClick={insertLink}>Link</button>
         <button type="button" className="secondary compact-button" title="Bild ohne Bildunterschrift hochladen" onClick={() => fileInputRef.current?.click()}>Bild</button>
+        <button type="button" className="secondary compact-button" title="Bild links ausrichten" onClick={() => setImageAlignment("links")}>← Bild</button>
+        <button type="button" className="secondary compact-button" title="Bild mittig ausrichten" onClick={() => setImageAlignment("mitte")}>↔ Bild</button>
+        <button type="button" className="secondary compact-button" title="Bild rechts ausrichten" onClick={() => setImageAlignment("rechts")}>Bild →</button>
       </div>
       <textarea ref={textareaRef} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(event) => {
@@ -1524,7 +1616,9 @@ type MarkdownBlock =
   | { type: "heading"; level: 2 | 3 | 4; text: string }
   | { type: "paragraph"; text: string }
   | { type: "list"; items: string[] }
-  | { type: "image"; alt: string; url: string };
+  | { type: "image"; alt: string; url: string; align: MarkdownImageAlign };
+
+type MarkdownImageAlign = "left" | "center" | "right";
 
 function MarkdownContent({ value }: { value: string }) {
   const blocks = parseMarkdown(value);
@@ -1540,7 +1634,7 @@ function MarkdownContent({ value }: { value: string }) {
           return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkdown text={item} /></li>)}</ul>;
         }
         if (block.type === "image") {
-          return <MarkdownImage alt={block.alt} url={block.url} key={index} />;
+          return <MarkdownImage alt={block.alt} url={block.url} align={block.align} key={index} />;
         }
         return <p key={index}><InlineMarkdown text={block.text} /></p>;
       })}
@@ -1552,11 +1646,11 @@ function InlineMarkdown({ text }: { text: string }) {
   return <>{renderInlineMarkdown(text)}</>;
 }
 
-function MarkdownImage({ alt, url }: { alt: string; url: string }) {
+function MarkdownImage({ alt, url, align = "center" }: { alt: string; url: string; align?: MarkdownImageAlign }) {
   const safeUrl = safeHttpUrl(url);
   if (!safeUrl) return <span className="muted">Bild-URL nicht erlaubt: {url}</span>;
   return (
-    <figure className="markdown-image">
+    <figure className={`markdown-image align-${align}`}>
       <img src={safeUrl} alt={alt} loading="lazy" />
       {alt ? (
         <figcaption>
@@ -1608,11 +1702,11 @@ function parseMarkdown(value: string): MarkdownBlock[] {
       continue;
     }
 
-    const image = trimmed.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
+    const image = trimmed.match(/^!\[([^\]]*)\]\(([^)\s]+)\)(?:\s*\{(links|mitte|rechts|left|center|right)\})?$/i);
     if (image) {
       flushParagraph();
       flushList();
-      blocks.push({ type: "image", alt: image[1] || "", url: image[2] || "" });
+      blocks.push({ type: "image", alt: image[1] || "", url: image[2] || "", align: normalizeImageAlign(image[3]) });
       continue;
     }
 
@@ -1642,7 +1736,7 @@ function parseMarkdown(value: string): MarkdownBlock[] {
 
 function renderInlineMarkdown(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  const tokenPattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|!\[[^\]]*\]\([^\s)]+\)|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<)]+)/g;
+  const tokenPattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|!\[[^\]]*\]\([^\s)]+\)(?:\s*\{(?:links|mitte|rechts|left|center|right)\})?|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<)]+)/gi;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -1658,8 +1752,8 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     } else if (token.startsWith("*")) {
       nodes.push(<em key={key}>{renderInlineMarkdown(token.slice(1, -1))}</em>);
     } else if (token.startsWith("![")) {
-      const image = token.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-      if (image) nodes.push(<MarkdownImage key={key} alt={image[1] || ""} url={image[2] || ""} />);
+      const image = token.match(/^!\[([^\]]*)\]\(([^)]+)\)(?:\s*\{(links|mitte|rechts|left|center|right)\})?$/i);
+      if (image) nodes.push(<MarkdownImage key={key} alt={image[1] || ""} url={image[2] || ""} align={normalizeImageAlign(image[3])} />);
     } else {
       const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       const label = link ? link[1]! : token;
@@ -1689,6 +1783,13 @@ function appendPlainText(nodes: React.ReactNode[], text: string): void {
     if (index > 0) nodes.push(<br key={`br-${nodes.length}-${index}`} />);
     if (part) nodes.push(part);
   });
+}
+
+function normalizeImageAlign(value: string | undefined): MarkdownImageAlign {
+  const normalized = value?.toLocaleLowerCase("de-DE");
+  if (normalized === "links" || normalized === "left") return "left";
+  if (normalized === "rechts" || normalized === "right") return "right";
+  return "center";
 }
 
 function safeHttpUrl(value: string): string | null {
@@ -1949,13 +2050,46 @@ function inferGenreFromTags(tags: string[]): string {
 }
 
 function getOnboardingItems(onboarding: OnboardingSettings): Array<{ title: string; value: string }> {
-  return [
-    { title: "WLAN / LAN", value: onboarding.wlanInfo },
-    { title: "Discord / Voice", value: onboarding.voiceInfo },
-    { title: "Essen", value: onboarding.foodInfo },
-    { title: "Ablauf", value: onboarding.scheduleInfo },
-    { title: "Hilfe", value: onboarding.helpInfo }
-  ].filter((item) => item.value.trim().length > 0);
+  return getOrderedOnboardingCategoryEntries(onboarding)
+    .map((category) => category.type === "default"
+      ? { title: category.title, value: onboarding[category.key] }
+      : { title: category.section.title, value: category.section.content })
+    .filter((item) => item.title.trim().length > 0 && item.value.trim().length > 0);
+}
+
+type OrderedOnboardingCategory =
+  | { type: "default"; id: string; title: string; key: DefaultOnboardingKey; placeholder: string }
+  | { type: "custom"; id: string; title: string; section: OnboardingSection };
+
+function getOrderedOnboardingCategoryEntries(onboarding: OnboardingSettings): OrderedOnboardingCategory[] {
+  const defaultsById = new Map(defaultOnboardingCategories.map((category) => [category.id, category]));
+  const sectionsById = new Map(onboarding.sections.map((section) => [section.id, section]));
+  const order = getOnboardingCategoryOrder(onboarding);
+  const entries: OrderedOnboardingCategory[] = [];
+
+  for (const id of order) {
+    const defaultCategory = defaultsById.get(id);
+    if (defaultCategory) {
+      entries.push({ type: "default", ...defaultCategory });
+      continue;
+    }
+    const section = sectionsById.get(id);
+    if (section) entries.push({ type: "custom", id: section.id, title: section.title, section });
+  }
+
+  return entries;
+}
+
+function getOnboardingCategoryOrder(onboarding: Pick<OnboardingSettings, "sections" | "categoryOrder">): string[] {
+  const defaultIds = defaultOnboardingCategories.map((category) => category.id);
+  const customIds = onboarding.sections.map((section) => section.id);
+  const allowed = new Set([...defaultIds, ...customIds]);
+  const saved = onboarding.categoryOrder || [];
+  const ordered = [...new Set(saved.filter((id) => allowed.has(id)))];
+  for (const id of [...defaultIds, ...customIds]) {
+    if (!ordered.includes(id)) ordered.push(id);
+  }
+  return ordered;
 }
 
 function matchesGroupSize(game: PoolGame, groupSize: number): boolean {
@@ -2053,7 +2187,8 @@ function removeImageFromOnboarding(settings: OnboardingSettings, imageUrl: strin
     voiceInfo: removeImageMarkdown(settings.voiceInfo, imageUrl),
     foodInfo: removeImageMarkdown(settings.foodInfo, imageUrl),
     scheduleInfo: removeImageMarkdown(settings.scheduleInfo, imageUrl),
-    helpInfo: removeImageMarkdown(settings.helpInfo, imageUrl)
+    helpInfo: removeImageMarkdown(settings.helpInfo, imageUrl),
+    sections: settings.sections.map((section) => ({ ...section, content: removeImageMarkdown(section.content, imageUrl) }))
   };
 }
 
@@ -2073,7 +2208,9 @@ function onboardingSettingsChanged(left: OnboardingSettings, right: OnboardingSe
     || left.voiceInfo !== right.voiceInfo
     || left.foodInfo !== right.foodInfo
     || left.scheduleInfo !== right.scheduleInfo
-    || left.helpInfo !== right.helpInfo;
+    || left.helpInfo !== right.helpInfo
+    || JSON.stringify(left.sections) !== JSON.stringify(right.sections)
+    || JSON.stringify(left.categoryOrder) !== JSON.stringify(right.categoryOrder);
 }
 
 function escapeRegExp(value: string): string {

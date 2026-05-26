@@ -80,6 +80,8 @@ export function openDatabase(config: ServerConfig): Db {
       food_info TEXT NOT NULL DEFAULT '',
       schedule_info TEXT NOT NULL DEFAULT '',
       help_info TEXT NOT NULL DEFAULT '',
+      sections_json TEXT NOT NULL DEFAULT '[]',
+      category_order_json TEXT NOT NULL DEFAULT '[]',
       updated_at TEXT NOT NULL
     );
 
@@ -120,10 +122,12 @@ export function openDatabase(config: ServerConfig): Db {
   ensureColumn(db, "game_pool", "max_players", "INTEGER");
   ensureColumn(db, "game_pool", "release_date", "TEXT NOT NULL DEFAULT ''");
   ensureColumn(db, "game_pool", "tags", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "onboarding_settings", "sections_json", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(db, "onboarding_settings", "category_order_json", "TEXT NOT NULL DEFAULT '[]'");
   db.prepare(
     `INSERT OR IGNORE INTO onboarding_settings
-       (id, enabled, title, wlan_info, voice_info, food_info, schedule_info, help_info, updated_at)
-     VALUES (1, 0, 'LAN-Startseite', '', '', '', '', '', ?)`
+       (id, enabled, title, wlan_info, voice_info, food_info, schedule_info, help_info, sections_json, category_order_json, updated_at)
+     VALUES (1, 0, 'LAN-Startseite', '', '', '', '', '', '[]', '[]', ?)`
   ).run(new Date().toISOString());
   db.prepare(
     `INSERT OR IGNORE INTO app_settings

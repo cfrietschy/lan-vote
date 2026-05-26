@@ -450,7 +450,14 @@ async function listUploadedImages(): Promise<Array<{ filename: string; url: stri
 
 function referencedUploadFilenames(): Set<string> {
   const onboarding = store.getOnboardingSettings();
-  const text = [onboarding.wlanInfo, onboarding.voiceInfo, onboarding.foodInfo, onboarding.scheduleInfo, onboarding.helpInfo].join("\n");
+  const text = [
+    onboarding.wlanInfo,
+    onboarding.voiceInfo,
+    onboarding.foodInfo,
+    onboarding.scheduleInfo,
+    onboarding.helpInfo,
+    ...onboarding.sections.map((section) => section.content)
+  ].join("\n");
   const filenames = new Set<string>();
   const pattern = /\/uploads\/([A-Za-z0-9._-]+\.(?:png|jpg|webp|gif))/gi;
   let match: RegExpExecArray | null;

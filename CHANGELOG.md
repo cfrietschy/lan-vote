@@ -2,6 +2,16 @@
 
 Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 
+## 2026-05-26
+
+### Hinzugefügt
+
+- Eigene Onboarding-Kategorien im Adminbereich.
+- Freie Kategorien haben Titel, Markdown-Inhalt, Bild-Uploads und können sortiert oder gelöscht werden.
+- Onboarding-Datenmodell speichert zusätzliche Kategorien migrationsfreundlich als JSON neben den bestehenden Standardfeldern.
+- Reihenfolge aller Onboarding-Kategorien ist frei editierbar, inklusive der Standardkategorien.
+- Markdown-Bilder in Onboarding-Texten können links, mittig oder rechts ausgerichtet werden.
+
 ## 2026-05-25
 
 ### Hinzugefügt

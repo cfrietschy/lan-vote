@@ -5,6 +5,7 @@ import type {
   GameDraftSnapshot,
   GameOption,
   HistoryEntry,
+  OnboardingSection,
   OnboardingSettings,
   PollResults,
   PollTemplate,
@@ -82,6 +83,8 @@ type OnboardingRow = {
   food_info: string;
   schedule_info: string;
   help_info: string;
+  sections_json: string;
+  category_order_json: string;
 };
 
 type AppSettingsRow = {
@@ -428,20 +431,23 @@ export class Store {
   }
 
   saveOnboardingSettings(settings: OnboardingSettings): OnboardingSettings {
+    const sections = normalizeOnboardingSections(settings.sections || []);
     const normalized = {
       enabled: Boolean(settings.enabled),
       title: settings.title.trim().slice(0, 80) || "LAN-Startseite",
-      wlanInfo: settings.wlanInfo.trim().slice(0, 1000),
-      voiceInfo: settings.voiceInfo.trim().slice(0, 1000),
-      foodInfo: settings.foodInfo.trim().slice(0, 1000),
-      scheduleInfo: settings.scheduleInfo.trim().slice(0, 1000),
-      helpInfo: settings.helpInfo.trim().slice(0, 1000)
+      wlanInfo: settings.wlanInfo.trim().slice(0, 4000),
+      voiceInfo: settings.voiceInfo.trim().slice(0, 4000),
+      foodInfo: settings.foodInfo.trim().slice(0, 4000),
+      scheduleInfo: settings.scheduleInfo.trim().slice(0, 4000),
+      helpInfo: settings.helpInfo.trim().slice(0, 4000),
+      sections,
+      categoryOrder: normalizeOnboardingCategoryOrder(settings.categoryOrder || [], sections)
     };
     this.db
       .prepare(
         `INSERT INTO onboarding_settings
-           (id, enabled, title, wlan_info, voice_info, food_info, schedule_info, help_info, updated_at)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, enabled, title, wlan_info, voice_info, food_info, schedule_info, help_info, sections_json, category_order_json, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            enabled = excluded.enabled,
            title = excluded.title,
@@ -450,6 +456,8 @@ export class Store {
            food_info = excluded.food_info,
            schedule_info = excluded.schedule_info,
            help_info = excluded.help_info,
+           sections_json = excluded.sections_json,
+           category_order_json = excluded.category_order_json,
            updated_at = excluded.updated_at`
       )
       .run(
@@ -460,6 +468,8 @@ export class Store {
         normalized.foodInfo,
         normalized.scheduleInfo,
         normalized.helpInfo,
+        JSON.stringify(normalized.sections),
+        JSON.stringify(normalized.categoryOrder),
         now()
       );
     return this.getOnboardingSettings();
@@ -680,6 +690,7 @@ function mapTemplate(row: TemplateRow): PollTemplate {
 }
 
 function mapOnboarding(row: OnboardingRow | undefined): OnboardingSettings {
+  const sections = parseOnboardingSections(row?.sections_json || "[]");
   return {
     enabled: Boolean(row?.enabled),
     title: row?.title || "LAN-Startseite",
@@ -687,8 +698,53 @@ function mapOnboarding(row: OnboardingRow | undefined): OnboardingSettings {
     voiceInfo: row?.voice_info || "",
     foodInfo: row?.food_info || "",
     scheduleInfo: row?.schedule_info || "",
-    helpInfo: row?.help_info || ""
+    helpInfo: row?.help_info || "",
+    sections,
+    categoryOrder: parseOnboardingCategoryOrder(row?.category_order_json || "[]", sections)
   };
+}
+
+function parseOnboardingSections(value: string): OnboardingSection[] {
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return normalizeOnboardingSections(parsed);
+  } catch {
+    return [];
+  }
+}
+
+function normalizeOnboardingSections(sections: OnboardingSection[]): OnboardingSection[] {
+  return sections
+    .map((section) => ({
+      id: section.id?.trim().slice(0, 80) || shortId(),
+      title: section.title.trim().slice(0, 60),
+      content: section.content.trim().slice(0, 4000)
+    }))
+    .filter((section) => section.title.length > 0 || section.content.length > 0)
+    .slice(0, 20);
+}
+
+const defaultOnboardingCategoryIds = ["wlan", "voice", "food", "schedule", "help"];
+
+function parseOnboardingCategoryOrder(value: string, sections: OnboardingSection[]): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return normalizeOnboardingCategoryOrder([], sections);
+    return normalizeOnboardingCategoryOrder(parsed, sections);
+  } catch {
+    return normalizeOnboardingCategoryOrder([], sections);
+  }
+}
+
+function normalizeOnboardingCategoryOrder(order: string[], sections: OnboardingSection[]): string[] {
+  const customIds = sections.map((section) => section.id);
+  const allowed = new Set([...defaultOnboardingCategoryIds, ...customIds]);
+  const normalized = [...new Set(order.map((item) => item.trim()).filter((item) => allowed.has(item)))];
+  for (const id of [...defaultOnboardingCategoryIds, ...customIds]) {
+    if (!normalized.includes(id)) normalized.push(id);
+  }
+  return normalized.slice(0, 25);
 }
 
 function normalizeGame(game: GameInput): GameDraftSnapshot {

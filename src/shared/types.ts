@@ -112,6 +112,14 @@ export type OnboardingSettings = {
   foodInfo: string;
   scheduleInfo: string;
   helpInfo: string;
+  sections: OnboardingSection[];
+  categoryOrder: string[];
+};
+
+export type OnboardingSection = {
+  id: string;
+  title: string;
+  content: string;
 };
 
 export type AppSettings = {
