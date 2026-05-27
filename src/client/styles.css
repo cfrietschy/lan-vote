@@ -846,8 +846,15 @@ textarea:focus {
 
 .info-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 14px;
+}
+
+.info-panel h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  hyphens: auto;
 }
 
 .info-panel p {
@@ -875,7 +882,11 @@ textarea:focus {
 .markdown-content h2,
 .markdown-content h3,
 .markdown-content h4 {
+  min-width: 0;
   line-height: 1.16;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  hyphens: auto;
 }
 
 .markdown-content ul {
@@ -949,6 +960,26 @@ textarea:focus {
   background: #111820;
 }
 
+.markdown-image-button {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: zoom-in;
+}
+
+.markdown-image-button:focus-visible {
+  outline: 3px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+.markdown-image-button img {
+  display: block;
+}
+
 .markdown-image:not(.sized) img {
   width: auto;
 }
@@ -983,6 +1014,60 @@ textarea:focus {
   flex-wrap: wrap;
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 7, 10, 0.9);
+  padding: 24px;
+}
+
+.image-lightbox-content {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: auto;
+}
+
+.image-lightbox-content img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 116px);
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111820;
+}
+
+.image-lightbox-content p {
+  margin: 0;
+  max-width: min(100%, 900px);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.image-lightbox-close {
+  justify-self: end;
+  border: 1px solid #7c90a4;
+  border-radius: 999px;
+  background: #26313b;
+  color: #eef4fb;
+  padding: 0.42rem 0.72rem;
+  font-weight: 800;
+}
+
+.image-lightbox-close:focus-visible {
+  outline: 3px solid var(--cyan);
+  outline-offset: 3px;
 }
 
 .preset-card {

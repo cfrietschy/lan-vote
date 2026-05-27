@@ -16,6 +16,7 @@ Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 - Onboarding-Bilder können in einer Markdown-Zeile nebeneinander dargestellt und bis 200% bzw. 2400px skaliert werden.
 - Admins können zeitlich begrenzte Info-Meldungen veröffentlichen, die auf der TV-Seite sichtbar sind und bei Besuchern als Popup erscheinen.
 - Admin-Meldungen akzeptieren Ablaufzeiten im deutschen Format, z.B. `26.05.2026 18:30`.
+- Bilder auf der Startseite können per Klick in einer Originalansicht geöffnet werden.
 
 ### Behoben
 
@@ -24,6 +25,7 @@ Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 - `docker-compose.yml` enthält keine private Beispiel-Domain mehr; `LAN_VOTE_PUBLIC_URL` ist jetzt ein Pflichtwert aus `.env`.
 - `qrcode` ist als Produktionsabhängigkeit deklariert.
 - Spiele im Spiel-Pool zeigen nun an, ob sie bereits in der geplanten Abstimmung enthalten sind, und können dort direkt wieder abgewählt werden.
+- Lange Kategorieüberschriften auf der Startseite bleiben innerhalb ihrer Boxen.
 
 ## 2026-05-25
 

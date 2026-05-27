@@ -318,6 +318,16 @@ function MonitorView({ state }: { state: PublicState }) {
 
 function OnboardingView({ state }: { state: PublicState }) {
   const items = getOnboardingItems(state.onboarding);
+  const [lightboxImage, setLightboxImage] = useState<MarkdownLightboxImage | null>(null);
+
+  useEffect(() => {
+    if (!lightboxImage) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setLightboxImage(null);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [lightboxImage]);
 
   return (
     <section className="onboarding-layout">
@@ -334,14 +344,27 @@ function OnboardingView({ state }: { state: PublicState }) {
           {items.map(({ id, title, value }) => (
             <section className="panel info-panel" key={id}>
               <h2>{title}</h2>
-              <MarkdownContent value={value} />
+              <MarkdownContent value={value} onOpenImage={setLightboxImage} />
             </section>
           ))}
         </div>
       ) : (
         <div className="empty">Noch keine LAN-Infos hinterlegt. Der Adminbereich kann diese Startseite befüllen.</div>
       )}
+      {lightboxImage ? <ImageLightbox image={lightboxImage} onClose={() => setLightboxImage(null)} /> : null}
     </section>
+  );
+}
+
+function ImageLightbox({ image, onClose }: { image: MarkdownLightboxImage; onClose: () => void }) {
+  return (
+    <div className="image-lightbox" role="dialog" aria-modal="true" aria-label="Bild in Originalgröße" onClick={onClose}>
+      <div className="image-lightbox-content" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="image-lightbox-close" onClick={onClose} aria-label="Bild schließen">Schließen</button>
+        <img src={image.url} alt={image.alt} />
+        {image.alt ? <p>{image.alt}</p> : null}
+      </div>
+    </div>
   );
 }
 
@@ -1842,11 +1865,12 @@ type MarkdownBlock =
   | { type: "imageRow"; images: MarkdownImageBlock[] };
 
 type MarkdownImageBlock = { type: "image"; alt: string; url: string; align: MarkdownImageAlign; width?: string };
+type MarkdownLightboxImage = { alt: string; url: string };
 
 type MarkdownImageAlign = "left" | "center" | "right";
 type MarkdownImageAttributes = { align: MarkdownImageAlign; width?: string };
 
-function MarkdownContent({ value }: { value: string }) {
+function MarkdownContent({ value, onOpenImage }: { value: string; onOpenImage?: (image: MarkdownLightboxImage) => void }) {
   const blocks = parseMarkdown(value);
   if (!blocks.length) return null;
   return (
@@ -1854,30 +1878,35 @@ function MarkdownContent({ value }: { value: string }) {
       {blocks.map((block, index) => {
         if (block.type === "heading") {
           const HeadingTag = `h${block.level}` as "h2" | "h3" | "h4";
-          return <HeadingTag key={index}><InlineMarkdown text={block.text} /></HeadingTag>;
+          return <HeadingTag key={index}><InlineMarkdown text={block.text} onOpenImage={onOpenImage} /></HeadingTag>;
         }
         if (block.type === "list") {
-          return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkdown text={item} /></li>)}</ul>;
+          return <ul key={index}>{block.items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkdown text={item} onOpenImage={onOpenImage} /></li>)}</ul>;
         }
-        if (block.type === "image") return <MarkdownImage alt={block.alt} url={block.url} align={block.align} width={block.width} key={index} />;
-        if (block.type === "imageRow") return <MarkdownImageRow images={block.images} key={index} />;
-        return <p key={index}><InlineMarkdown text={block.text} /></p>;
+        if (block.type === "image") return <MarkdownImage alt={block.alt} url={block.url} align={block.align} width={block.width} onOpenImage={onOpenImage} key={index} />;
+        if (block.type === "imageRow") return <MarkdownImageRow images={block.images} onOpenImage={onOpenImage} key={index} />;
+        return <p key={index}><InlineMarkdown text={block.text} onOpenImage={onOpenImage} /></p>;
       })}
     </div>
   );
 }
 
-function InlineMarkdown({ text }: { text: string }) {
-  return <>{renderInlineMarkdown(text)}</>;
+function InlineMarkdown({ text, onOpenImage }: { text: string; onOpenImage?: (image: MarkdownLightboxImage) => void }) {
+  return <>{renderInlineMarkdown(text, onOpenImage)}</>;
 }
 
-function MarkdownImage({ alt, url, align = "center", width }: { alt: string; url: string; align?: MarkdownImageAlign; width?: string }) {
+function MarkdownImage({ alt, url, align = "center", width, onOpenImage }: { alt: string; url: string; align?: MarkdownImageAlign; width?: string; onOpenImage?: (image: MarkdownLightboxImage) => void }) {
   const safeUrl = safeHttpUrl(url);
   if (!safeUrl) return <span className="muted">Bild-URL nicht erlaubt: {url}</span>;
   const style = width ? ({ "--markdown-image-width": width } as React.CSSProperties) : undefined;
+  const image = <img src={safeUrl} alt={alt} loading="lazy" />;
   return (
     <figure className={`markdown-image align-${align} ${width ? "sized" : ""}`} style={style}>
-      <img src={safeUrl} alt={alt} loading="lazy" />
+      {onOpenImage ? (
+        <button type="button" className="markdown-image-button" onClick={() => onOpenImage({ alt, url: safeUrl })} title="Bild in Originalgröße öffnen">
+          {image}
+        </button>
+      ) : image}
       {alt ? (
         <figcaption>
           <span>{alt}</span>
@@ -1888,11 +1917,11 @@ function MarkdownImage({ alt, url, align = "center", width }: { alt: string; url
   );
 }
 
-function MarkdownImageRow({ images }: { images: MarkdownImageBlock[] }) {
+function MarkdownImageRow({ images, onOpenImage }: { images: MarkdownImageBlock[]; onOpenImage?: (image: MarkdownLightboxImage) => void }) {
   const align = images[0]?.align || "center";
   return (
     <div className={`markdown-image-row align-${align}`}>
-      {images.map((image, index) => <MarkdownImage alt={image.alt} url={image.url} align={image.align} width={image.width} key={`${image.url}-${index}`} />)}
+      {images.map((image, index) => <MarkdownImage alt={image.alt} url={image.url} align={image.align} width={image.width} onOpenImage={onOpenImage} key={`${image.url}-${index}`} />)}
     </div>
   );
 }
@@ -1985,7 +2014,7 @@ function parseMarkdownImageRow(value: string): MarkdownImageBlock[] | null {
   return images.length ? images : null;
 }
 
-function renderInlineMarkdown(text: string): React.ReactNode[] {
+function renderInlineMarkdown(text: string, onOpenImage?: (image: MarkdownLightboxImage) => void): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const tokenPattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|!\[[^\]]*\]\([^\s)]+\)(?:\s*\{[^}\n]+\})?|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<)]+)/gi;
   let lastIndex = 0;
@@ -1999,12 +2028,12 @@ function renderInlineMarkdown(text: string): React.ReactNode[] {
     if (token.startsWith("`")) {
       nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
     } else if (token.startsWith("**")) {
-      nodes.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2))}</strong>);
+      nodes.push(<strong key={key}>{renderInlineMarkdown(token.slice(2, -2), onOpenImage)}</strong>);
     } else if (token.startsWith("*")) {
-      nodes.push(<em key={key}>{renderInlineMarkdown(token.slice(1, -1))}</em>);
+      nodes.push(<em key={key}>{renderInlineMarkdown(token.slice(1, -1), onOpenImage)}</em>);
     } else if (token.startsWith("![")) {
       const image = token.match(/^!\[([^\]]*)\]\(([^)]+)\)(?:\s*\{([^}]*)\})?$/i);
-      if (image) nodes.push(<MarkdownImage key={key} alt={image[1] || ""} url={image[2] || ""} {...parseMarkdownImageAttributes(image[3])} />);
+      if (image) nodes.push(<MarkdownImage key={key} alt={image[1] || ""} url={image[2] || ""} onOpenImage={onOpenImage} {...parseMarkdownImageAttributes(image[3])} />);
     } else {
       const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
       const label = link ? link[1]! : token;
