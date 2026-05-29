@@ -17,6 +17,7 @@ Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 - Admins können zeitlich begrenzte Info-Meldungen veröffentlichen, die auf der TV-Seite sichtbar sind und bei Besuchern als Popup erscheinen.
 - Admin-Meldungen akzeptieren Ablaufzeiten im deutschen Format, z.B. `26.05.2026 18:30`.
 - Bilder auf der Startseite können per Klick in einer Originalansicht geöffnet werden.
+- Benachrichtigungen nutzen eine längere Alarm-Fanfare statt eines kurzen Piepsers.
 
 ### Behoben
 
@@ -26,6 +27,7 @@ Alle relevanten Änderungen an LAN Vote werden in dieser Datei dokumentiert.
 - `qrcode` ist als Produktionsabhängigkeit deklariert.
 - Spiele im Spiel-Pool zeigen nun an, ob sie bereits in der geplanten Abstimmung enthalten sind, und können dort direkt wieder abgewählt werden.
 - Lange Kategorieüberschriften auf der Startseite bleiben innerhalb ihrer Boxen.
+- Notification-Sound wird bei Nutzerinteraktionen reaktiviert, damit er auf iOS zuverlässiger mehrfach abgespielt wird.
 
 ## 2026-05-25
 

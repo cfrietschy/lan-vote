@@ -152,11 +152,26 @@ function App() {
     showAdminNotice(state.adminNotice);
   }, [state?.adminNotice?.id]);
 
+  useEffect(() => {
+    if (!soundEnabled) return undefined;
+    const rearm = () => {
+      void rearmNotificationSound();
+    };
+    window.addEventListener("pointerdown", rearm);
+    window.addEventListener("touchstart", rearm, { passive: true });
+    window.addEventListener("keydown", rearm);
+    return () => {
+      window.removeEventListener("pointerdown", rearm);
+      window.removeEventListener("touchstart", rearm);
+      window.removeEventListener("keydown", rearm);
+    };
+  }, [soundEnabled]);
+
   function handlePollStarted(payload: Omit<PollStartedNotice, "receivedAt">) {
     const nextNotice: VisitorNotice = { kind: "poll", ...payload, receivedAt: Date.now() };
     setNotice(nextNotice);
     notifyDevice();
-    if (soundEnabled) playNewPollSound();
+    if (soundEnabled) void playNewPollSound();
   }
 
   function handleAdminNotice(payload: AdminNotice) {
@@ -172,7 +187,7 @@ function App() {
     markAdminNoticeSeen(payload.id);
     setNotice({ kind: "admin", ...payload, receivedAt: Date.now() });
     notifyDevice();
-    if (soundEnabled) playNewPollSound();
+    if (soundEnabled) void playNewPollSound();
   }
 
   async function enableSound() {
@@ -2666,6 +2681,7 @@ function formatDuration(ms: number): string {
 }
 
 let notificationAudio: AudioContext | null = null;
+let lastNotificationRearm = 0;
 
 function isNotificationSoundEnabled(): boolean {
   return localStorage.getItem("lanVoteSoundEnabled") === "true";
@@ -2675,31 +2691,81 @@ async function enableNotificationSound(): Promise<void> {
   localStorage.setItem("lanVoteSoundEnabled", "true");
   const audio = getNotificationAudio();
   if (audio.state === "suspended") await audio.resume();
-  playNewPollSound();
+  await playNewPollSound();
 }
 
 function getNotificationAudio(): AudioContext {
-  notificationAudio ||= new AudioContext();
+  notificationAudio ||= new (getAudioContextConstructor())();
   return notificationAudio;
 }
 
-function playNewPollSound(): void {
+function getAudioContextConstructor(): typeof AudioContext {
+  return window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext || AudioContext;
+}
+
+async function rearmNotificationSound(): Promise<void> {
+  if (!isNotificationSoundEnabled()) return;
+  const nowMs = Date.now();
+  if (nowMs - lastNotificationRearm < 750) return;
+  lastNotificationRearm = nowMs;
+
   try {
     const audio = getNotificationAudio();
+    if (audio.state === "suspended") await audio.resume();
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
     const now = audio.currentTime;
-    [0, 0.16, 0.34].forEach((offset, index) => {
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(440, now);
+    gain.gain.setValueAtTime(0.00001, now);
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.03);
+  } catch {
+    // Re-arming is opportunistic; the explicit sound trigger handles failures.
+  }
+}
+
+async function playNewPollSound(): Promise<void> {
+  try {
+    const audio = getNotificationAudio();
+    if (audio.state === "suspended") await audio.resume();
+    const now = audio.currentTime + 0.02;
+    const master = audio.createGain();
+    master.gain.setValueAtTime(0.82, now);
+    master.connect(audio.destination);
+
+    const notes = [
+      { offset: 0, duration: 0.18, frequency: 740, type: "square" },
+      { offset: 0.19, duration: 0.18, frequency: 988, type: "square" },
+      { offset: 0.38, duration: 0.28, frequency: 1319, type: "triangle" },
+      { offset: 0.82, duration: 0.18, frequency: 740, type: "square" },
+      { offset: 1.01, duration: 0.18, frequency: 988, type: "square" },
+      { offset: 1.2, duration: 0.36, frequency: 1480, type: "triangle" },
+      { offset: 1.68, duration: 0.55, frequency: 988, type: "triangle" },
+      { offset: 1.68, duration: 0.55, frequency: 1245, type: "triangle" },
+      { offset: 1.68, duration: 0.55, frequency: 1568, type: "triangle" }
+    ] as const;
+
+    notes.forEach((note, index) => {
       const oscillator = audio.createOscillator();
       const gain = audio.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime([660, 880, 1175][index]!, now + offset);
-      gain.gain.setValueAtTime(0.0001, now + offset);
-      gain.gain.exponentialRampToValueAtTime(0.18, now + offset + 0.025);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.14);
+      const start = now + note.offset;
+      const end = start + note.duration;
+      oscillator.type = note.type;
+      oscillator.frequency.setValueAtTime(note.frequency, start);
+      oscillator.frequency.exponentialRampToValueAtTime(note.frequency * (index < 6 ? 1.02 : 0.985), end);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(index < 6 ? 0.22 : 0.15, start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.0001, end);
       oscillator.connect(gain);
-      gain.connect(audio.destination);
-      oscillator.start(now + offset);
-      oscillator.stop(now + offset + 0.16);
+      gain.connect(master);
+      oscillator.start(start);
+      oscillator.stop(end + 0.04);
     });
+
+    window.setTimeout(() => master.disconnect(), 2600);
   } catch {
     localStorage.removeItem("lanVoteSoundEnabled");
   }
